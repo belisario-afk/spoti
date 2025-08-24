@@ -27,40 +27,21 @@ const statusEl = $("#status");
 const viz = new Visualizer(document.getElementById("visualizer"));
 
 // -------- Config / Redirect URI (Spotify policy compliant) --------
-// Rules:
-// - HTTPS for non-loopback hosts.
-// - HTTP only for loopback IP literals (127.0.0.1 or [::1]).
-// - localhost is NOT allowed.
-// - For loopback, you can register without a port; dynamic ports are allowed at runtime.
-// We compute a base URL with trailing slash that matches the current directory path.
 function computeRedirectUri() {
-  const u = new URL("./", window.location.href); // ensures trailing slash at current directory
+  const u = new URL("./", window.location.href); // current directory with trailing slash
   const isHttps = u.protocol === "https:";
-  const host = u.hostname; // e.g., "127.0.0.1", "::1", "localhost", "example.com"
+  const host = u.hostname;
 
-  const isLoopbackV4 = host === "127.0.0.1";
-  const isLoopbackV6 = host === "::1";
-  const isLoopback = isLoopbackV4 || isLoopbackV6;
+  const isLoopback = host === "127.0.0.1" || host === "::1";
 
-  if (isHttps) {
-    // HTTPS is required for non-loopback; this is compliant.
-    return u.toString();
-  }
+  if (isHttps) return u.toString();
+  if (isLoopback) return u.toString();
 
-  // HTTP case
-  if (isLoopback) {
-    // Allowed: keep as-is (with dynamic port and path)
-    return u.toString();
-  }
-
-  // If serving at "localhost" or "0.0.0.0" (dev servers), rewrite to 127.0.0.1
   if (host === "localhost" || host === "0.0.0.0") {
     u.hostname = "127.0.0.1";
-    // Keep port and path the same; dynamic port is okay for loopback
     return u.toString();
   }
 
-  // Other non-loopback over HTTP is not allowed; we keep it to proceed but warn the user.
   return u.toString();
 }
 
@@ -73,10 +54,14 @@ const SCOPES = [
   "user-modify-playback-state",
 ].join(" ");
 
+function status(msg) {
+  console.log("[status]", msg);
+  statusEl.textContent = msg;
+}
+
 if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
   status("Set your Spotify Client ID in config.js (copy config.example.js).");
 } else {
-  // Surface a gentle warning if running on non-loopback HTTP
   const url = new URL(REDIRECT_URI);
   const isHttp = url.protocol === "http:";
   const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "::1";
@@ -130,7 +115,6 @@ async function ensureAccessToken() {
   if (tok && tok.expires_at > Math.floor(Date.now() / 1000)) return tok.access_token;
 
   if (tok && tok.refresh_token) {
-    // Refresh
     const params = new URLSearchParams();
     params.set("client_id", SPOTIFY_CLIENT_ID);
     params.set("grant_type", "refresh_token");
@@ -212,6 +196,10 @@ function logout() {
   location.reload();
 }
 
+// Attach auth button handlers immediately so login works before SDK/token.
+loginBtn.addEventListener("click", login);
+logoutBtn.addEventListener("click", logout);
+
 // -------- Spotify APIs --------
 async function api(path, init = {}) {
   const token = await ensureAccessToken();
@@ -259,11 +247,6 @@ function msToTime(ms) {
   return `${m}:${ss}`;
 }
 
-function status(msg) {
-  console.log("[status]", msg);
-  statusEl.textContent = msg;
-}
-
 async function init() {
   try {
     const token = await ensureAccessToken();
@@ -271,6 +254,7 @@ async function init() {
 
     if (!token) {
       status("Please log in with Spotify.");
+      // We return here but auth buttons are already bound above.
       return;
     }
 
@@ -336,8 +320,8 @@ async function init() {
       return;
     }
 
-    // Bind controls
-    bindControls();
+    // Bind player controls now that player exists
+    bindPlayerControls();
 
     // Start visualizer
     viz.start();
@@ -347,13 +331,11 @@ async function init() {
   }
 }
 
-function bindControls() {
+function bindPlayerControls() {
   playBtn.addEventListener("click", async () => {
     try {
-      // toggle via SDK where possible
       await player.togglePlay();
     } catch {
-      // fallback via Web API
       if (isPlaying) await pausePlayback();
       else await startResumePlayback();
     }
@@ -386,9 +368,6 @@ function bindControls() {
       console.warn(e);
     }
   });
-
-  loginBtn.addEventListener("click", login);
-  logoutBtn.addEventListener("click", logout);
 }
 
 function updateAuthUI(isAuthed) {
@@ -423,7 +402,6 @@ async function onPlayerState(state) {
       updatePaletteFromImage(imgUrl).catch(console.warn);
     }
 
-    // Audio features for tempo/energy
     try {
       const id = (track.uri || "").split(":").pop();
       if (id) {
@@ -442,9 +420,7 @@ async function updatePaletteFromImage(url) {
   const img = await loadImage(url);
   const colors = extractPalette(img, 5);
   viz.setPalette(colors);
-  // update page accent
-  const root = document.documentElement;
-  root.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
+  document.documentElement.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
 }
 
 function loadImage(src) {
@@ -458,7 +434,6 @@ function loadImage(src) {
 }
 
 function extractPalette(image, maxColors = 5) {
-  // Quantize by reducing RGB resolution, then pick top buckets
   const canvas = document.createElement("canvas");
   const w = (canvas.width = Math.min(240, image.naturalWidth));
   const h = (canvas.height = Math.min(240, image.naturalHeight));
@@ -467,31 +442,25 @@ function extractPalette(image, maxColors = 5) {
   const { data } = ctx.getImageData(0, 0, w, h);
 
   const buckets = new Map();
-  const step = 4 * 4; // sample every 4 pixels for speed
+  const step = 4 * 4;
   for (let i = 0; i < data.length; i += step) {
     const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
     if (a < 128) continue;
-    // Drop very dark/very bright extremes less frequently
     const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const keep = luma > 30;
-    if (!keep) continue;
-
-    // 4-bit quantization per channel
+    if (luma <= 30) continue;
     const rq = r & 0xF0, gq = g & 0xF0, bq = b & 0xF0;
     const key = (rq << 16) | (gq << 8) | bq;
     buckets.set(key, (buckets.get(key) || 0) + 1);
   }
 
   const top = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxColors + 2);
-  // Convert to hex; ensure some contrast by sorting by luma and picking
   const colors = top.map(([key]) => {
     const r = (key >> 16) & 0xFF;
     const g = (key >> 8) & 0xFF;
     const b = key & 0xFF;
-    return rgbToHex(r, g, b);
+    return "#" + [r, g, b].map(n => n.toString(16).padStart(2, "0")).join("");
   });
 
-  // Prefer a darker base first for background glow, then brighter accents
   const withLuma = colors.map(c => ({ c, l: hexLuma(c) }));
   withLuma.sort((a, b) => a.l - b.l);
   const ordered = [
@@ -501,14 +470,10 @@ function extractPalette(image, maxColors = 5) {
     ...withLuma.slice(1, -1).map(x => x.c),
   ].filter(Boolean);
 
-  // Unique
   const uniq = [...new Set(ordered)];
   return uniq.slice(0, maxColors);
 }
 
-function rgbToHex(r, g, b) {
-  return "#" + [r, g, b].map(n => n.toString(16).padStart(2, "0")).join("");
-}
 function hexLuma(hex) {
   let c = hex.replace("#", "");
   if (c.length === 3) c = c.split("").map(ch => ch + ch).join("");
