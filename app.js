@@ -393,6 +393,12 @@ window.onSpotifyWebPlaybackSDKReady = () => sdkReadyResolve();
 
 function msToTime(ms) { if (!ms || ms < 0) ms = 0; const s = Math.floor(ms / 1000); const m = Math.floor(s / 60); const ss = String(s % 60).padStart(2, "0"); return `${m}:${ss}`; }
 
+// -------- Add missing updateAuthUI to avoid ReferenceError --------
+function updateAuthUI(isAuthed) {
+  if (loginBtn) loginBtn.hidden = !!isAuthed;
+  if (logoutBtn) logoutBtn.hidden = !isAuthed;
+}
+
 // -------- App init --------
 async function init() {
   try {
@@ -453,11 +459,6 @@ function bindPlayerControls() {
   volumeSlider.addEventListener("input", async () => { const vol = Number(volumeSlider.value) / 100; try { await player.setVolume(vol); } catch (e) { console.warn(e); } });
 }
 
-function updateAuthUI(isAuthed) {
-  loginBtn.hidden = !!isAuthed;
-  logoutBtn.hidden = !isAuthed;
-}
-
 async function onPlayerState(state) {
   if (!state) return;
   const track = state.track_window?.current_track || null;
@@ -502,6 +503,11 @@ async function onPlayerState(state) {
   }
 
   _updateAnalysisMapping();
+}
+
+function updateAuthUI(isAuthed) {
+  if (loginBtn) loginBtn.hidden = !!isAuthed;
+  if (logoutBtn) logoutBtn.hidden = !isAuthed;
 }
 
 function _resetAnalysisIndices() { lastBeatIdx = lastBarIdx = lastSectionIdx = -1; }
