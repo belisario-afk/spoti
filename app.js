@@ -5,11 +5,6 @@ import { Visualizer } from "./visualizer.js";
 const $ = (sel) => document.querySelector(sel);
 const loginBtn = $("#login-btn");
 const logoutBtn = $("#logout-btn");
-const settingsBtn = $("#settings-btn");
-const overlay = $("#overlay");
-const drawer = $("#drawer");
-const drawerClose = $("#drawer-close");
-
 const userSection = $("#user");
 const userName = $("#user-name");
 const userProduct = $("#user-product");
@@ -28,267 +23,44 @@ const duration = $("#duration");
 const volumeSlider = $("#volume-slider");
 const statusEl = $("#status");
 
-// Settings controls
-const colorModeSel = $("#color-mode");
-const customColorInp = $("#custom-color");
-const lockPaletteChk = $("#lock-palette");
-
-const ringsRange = $("#rings");
-const barsRange = $("#bars");
-const rotationRange = $("#rotation");
-const pulseRange = $("#pulse");
-const glowRange = $("#glow");
-const trailRange = $("#trail");
-const bloomRange = $("#bloom");
-const out = (id) => drawer.querySelector(`[data-out="${id}"]`);
-
-// -------- Device detection --------
-const ua = navigator.userAgent || "";
-const isIPhone = /\biPhone\b/.test(ua) || (/\bCPU iPhone OS\b/.test(ua) && /\bMobile\b/.test(ua));
-const isIOS = isIPhone || /\biPad\b/.test(ua);
-if (isIPhone) document.documentElement.classList.add("iphone");
-
-// -------- Visualizer --------
-const defaultSettings = {
-  colorMode: "album", // album | brand | mono
-  customColor: "#1db954",
-  lockPalette: false,
-  rings: isIPhone ? 2 : 3,
-  barsPerRing: isIPhone ? 36 : 48,
-  rotationMul: 1.0,
-  pulseMul: 1.0,
-  glowOpacity: 0.25,
-  trailAlpha: 0.06,
-  bloomStrength: 0.22,
-  dprCap: isIPhone ? 1.5 : Math.max(1, window.devicePixelRatio || 1),
-};
-const LS_SETTINGS = "viz_settings_v2";
-
-function loadSettings() {
-  const raw = localStorage.getItem(LS_SETTINGS);
-  if (!raw) return { ...defaultSettings };
-  try {
-    return { ...defaultSettings, ...JSON.parse(raw) };
-  } catch {
-    return { ...defaultSettings };
-  }
-}
-function saveSettings(s) {
-  localStorage.setItem(LS_SETTINGS, JSON.stringify(s));
-}
-
-let settings = loadSettings();
-
-// Visualizer instance
-const viz = new Visualizer(document.getElementById("visualizer"), {
-  rings: settings.rings,
-  barsPerRing: settings.barsPerRing,
-  rotationMul: settings.rotationMul,
-  pulseMul: settings.pulseMul,
-  glowOpacity: settings.glowOpacity,
-  trailAlpha: settings.trailAlpha,
-  bloomStrength: settings.bloomStrength,
-  dprCap: settings.dprCap,
-});
-
-// Initialize settings UI
-function initSettingsUI() {
-  colorModeSel.value = settings.colorMode;
-  customColorInp.value = settings.customColor;
-  lockPaletteChk.checked = settings.lockPalette;
-
-  ringsRange.value = String(settings.rings);
-  barsRange.value = String(settings.barsPerRing);
-  rotationRange.value = String(settings.rotationMul);
-  pulseRange.value = String(settings.pulseMul);
-  glowRange.value = String(settings.glowOpacity);
-  trailRange.value = String(settings.trailAlpha);
-  bloomRange.value = String(settings.bloomStrength);
-
-  out("rings-val").textContent = settings.rings;
-  out("bars-val").textContent = settings.barsPerRing;
-  out("rotation-val").textContent = settings.rotationMul.toFixed(1);
-  out("pulse-val").textContent = settings.pulseMul.toFixed(2);
-  out("glow-val").textContent = settings.glowOpacity.toFixed(2);
-  out("trail-val").textContent = settings.trailAlpha.toFixed(2);
-  out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
-
-  // Listeners
-  colorModeSel.addEventListener("change", () => {
-    settings.colorMode = colorModeSel.value;
-    applyColorMode();
-    saveSettings(settings);
-  });
-  customColorInp.addEventListener("input", () => {
-    settings.customColor = customColorInp.value;
-    if (settings.colorMode === "mono") applyColorMode();
-    saveSettings(settings);
-  });
-  lockPaletteChk.addEventListener("change", () => {
-    settings.lockPalette = lockPaletteChk.checked;
-    saveSettings(settings);
-  });
-
-  ringsRange.addEventListener("input", () => {
-    settings.rings = Number(ringsRange.value);
-    out("rings-val").textContent = settings.rings;
-    viz.configure({ rings: settings.rings });
-    saveSettings(settings);
-  });
-  barsRange.addEventListener("input", () => {
-    settings.barsPerRing = Number(barsRange.value);
-    out("bars-val").textContent = settings.barsPerRing;
-    viz.configure({ barsPerRing: settings.barsPerRing });
-    saveSettings(settings);
-  });
-  rotationRange.addEventListener("input", () => {
-    settings.rotationMul = Number(rotationRange.value);
-    out("rotation-val").textContent = settings.rotationMul.toFixed(1);
-    viz.configure({ rotationMul: settings.rotationMul });
-    saveSettings(settings);
-  });
-  pulseRange.addEventListener("input", () => {
-    settings.pulseMul = Number(pulseRange.value);
-    out("pulse-val").textContent = settings.pulseMul.toFixed(2);
-    viz.configure({ pulseMul: settings.pulseMul });
-    saveSettings(settings);
-  });
-  glowRange.addEventListener("input", () => {
-    settings.glowOpacity = Number(glowRange.value);
-    out("glow-val").textContent = settings.glowOpacity.toFixed(2);
-    viz.configure({ glowOpacity: settings.glowOpacity });
-    saveSettings(settings);
-  });
-  trailRange.addEventListener("input", () => {
-    settings.trailAlpha = Number(trailRange.value);
-    out("trail-val").textContent = settings.trailAlpha.toFixed(2);
-    viz.configure({ trailAlpha: settings.trailAlpha });
-    saveSettings(settings);
-  });
-  bloomRange.addEventListener("input", () => {
-    settings.bloomStrength = Number(bloomRange.value);
-    out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
-    viz.configure({ bloomStrength: settings.bloomStrength });
-    saveSettings(settings);
-  });
-
-  // Presets
-  drawer.querySelectorAll(".chip[data-preset]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const p = btn.getAttribute("data-preset");
-      applyPreset(p);
-    });
-  });
-
-  // Drawer controls
-  settingsBtn.addEventListener("click", openDrawer);
-  drawerClose.addEventListener("click", closeDrawer);
-  overlay.addEventListener("click", closeDrawer);
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
-  });
-
-  // Apply initial color mode
-  applyColorMode();
-}
-
-function openDrawer() {
-  overlay.classList.add("open");
-  drawer.classList.add("open");
-  overlay.setAttribute("aria-hidden", "false");
-  drawer.setAttribute("aria-hidden", "false");
-}
-function closeDrawer() {
-  overlay.classList.remove("open");
-  drawer.classList.remove("open");
-  overlay.setAttribute("aria-hidden", "true");
-  drawer.setAttribute("aria-hidden", "true");
-}
-
-function applyPreset(name) {
-  const presets = {
-    chill: {
-      rings: isIPhone ? 2 : 3,
-      barsPerRing: isIPhone ? 28 : 40,
-      rotationMul: 0.7,
-      pulseMul: 0.8,
-      glowOpacity: 0.32,
-      trailAlpha: 0.08,
-      bloomStrength: 0.28,
-    },
-    energetic: {
-      rings: isIPhone ? 3 : 4,
-      barsPerRing: isIPhone ? 44 : 64,
-      rotationMul: 1.6,
-      pulseMul: 1.6,
-      glowOpacity: 0.22,
-      trailAlpha: 0.04,
-      bloomStrength: 0.26,
-    },
-    minimal: {
-      rings: 1,
-      barsPerRing: 32,
-      rotationMul: 0.9,
-      pulseMul: 0.6,
-      glowOpacity: 0.18,
-      trailAlpha: 0.02,
-      bloomStrength: 0.15,
-    },
-  };
-  const p = presets[name];
-  if (!p) return;
-  Object.assign(settings, p);
-  viz.configure(p);
-
-  // Reflect in UI
-  ringsRange.value = String(settings.rings);
-  barsRange.value = String(settings.barsPerRing);
-  rotationRange.value = String(settings.rotationMul);
-  pulseRange.value = String(settings.pulseMul);
-  glowRange.value = String(settings.glowOpacity);
-  trailRange.value = String(settings.trailAlpha);
-  bloomRange.value = String(settings.bloomStrength);
-
-  out("rings-val").textContent = settings.rings;
-  out("bars-val").textContent = settings.barsPerRing;
-  out("rotation-val").textContent = settings.rotationMul.toFixed(1);
-  out("pulse-val").textContent = settings.pulseMul.toFixed(2);
-  out("glow-val").textContent = settings.glowOpacity.toFixed(2);
-  out("trail-val").textContent = settings.trailAlpha.toFixed(2);
-  out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
-
-  saveSettings(settings);
-}
-
-function applyColorMode() {
-  if (settings.colorMode === "album") {
-    // keep dynamic; palette updated per-track unless locked
-    document.documentElement.style.setProperty("--primary", viz.palette[1] || viz.palette[0] || "#1db954");
-  } else if (settings.colorMode === "brand") {
-    const brand = ["#1db954", "#1db954", "#ffffff"];
-    viz.setPalette(brand);
-    document.documentElement.style.setProperty("--primary", brand[0]);
-  } else if (settings.colorMode === "mono") {
-    const c = settings.customColor || "#1db954";
-    viz.setPalette([c, c, "#ffffff"]);
-    document.documentElement.style.setProperty("--primary", c);
-  }
-}
+// Visualizer
+const viz = new Visualizer(document.getElementById("visualizer"));
 
 // -------- Config / Redirect URI (Spotify policy compliant) --------
+// Rules:
+// - HTTPS for non-loopback hosts.
+// - HTTP only for loopback IP literals (127.0.0.1 or [::1]).
+// - localhost is NOT allowed.
+// - For loopback, you can register without a port; dynamic ports are allowed at runtime.
+// We compute a base URL with trailing slash that matches the current directory path.
 function computeRedirectUri() {
-  const u = new URL("./", window.location.href); // current directory with trailing slash
+  const u = new URL("./", window.location.href); // ensures trailing slash at current directory
   const isHttps = u.protocol === "https:";
-  const host = u.hostname;
+  const host = u.hostname; // e.g., "127.0.0.1", "::1", "localhost", "example.com"
 
-  const isLoopback = host === "127.0.0.1" || host === "::1";
+  const isLoopbackV4 = host === "127.0.0.1";
+  const isLoopbackV6 = host === "::1";
+  const isLoopback = isLoopbackV4 || isLoopbackV6;
 
-  if (isHttps || isLoopback) return u.toString();
-
-  if (host === "localhost" || host === "0.0.0.0") {
-    u.hostname = "127.0.0.1";
+  if (isHttps) {
+    // HTTPS is required for non-loopback; this is compliant.
     return u.toString();
   }
+
+  // HTTP case
+  if (isLoopback) {
+    // Allowed: keep as-is (with dynamic port and path)
+    return u.toString();
+  }
+
+  // If serving at "localhost" or "0.0.0.0" (dev servers), rewrite to 127.0.0.1
+  if (host === "localhost" || host === "0.0.0.0") {
+    u.hostname = "127.0.0.1";
+    // Keep port and path the same; dynamic port is okay for loopback
+    return u.toString();
+  }
+
+  // Other non-loopback over HTTP is not allowed; we keep it to proceed but warn the user.
   return u.toString();
 }
 
@@ -301,14 +73,10 @@ const SCOPES = [
   "user-modify-playback-state",
 ].join(" ");
 
-function status(msg) {
-  console.log("[status]", msg);
-  statusEl.textContent = msg;
-}
-
 if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
   status("Set your Spotify Client ID in config.js (copy config.example.js).");
 } else {
+  // Surface a gentle warning if running on non-loopback HTTP
   const url = new URL(REDIRECT_URI);
   const isHttp = url.protocol === "http:";
   const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "::1";
@@ -362,6 +130,7 @@ async function ensureAccessToken() {
   if (tok && tok.expires_at > Math.floor(Date.now() / 1000)) return tok.access_token;
 
   if (tok && tok.refresh_token) {
+    // Refresh
     const params = new URLSearchParams();
     params.set("client_id", SPOTIFY_CLIENT_ID);
     params.set("grant_type", "refresh_token");
@@ -381,6 +150,7 @@ async function ensureAccessToken() {
     return tok.access_token;
   }
 
+  // Handle authorization code in URL
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -410,6 +180,7 @@ async function ensureAccessToken() {
     const data = await res.json();
     saveTokens(data);
 
+    // Clean URL (drop code/state). Keep current directory.
     window.history.replaceState({}, document.title, new URL("./", window.location.href).toString());
     return data.access_token;
   }
@@ -440,10 +211,6 @@ function logout() {
   clearTokens();
   location.reload();
 }
-
-// Attach auth button handlers immediately so login works before SDK/token.
-loginBtn.addEventListener("click", login);
-logoutBtn.addEventListener("click", logout);
 
 // -------- Spotify APIs --------
 async function api(path, init = {}) {
@@ -492,6 +259,11 @@ function msToTime(ms) {
   return `${m}:${ss}`;
 }
 
+function status(msg) {
+  console.log("[status]", msg);
+  statusEl.textContent = msg;
+}
+
 async function init() {
   try {
     const token = await ensureAccessToken();
@@ -499,8 +271,6 @@ async function init() {
 
     if (!token) {
       status("Please log in with Spotify.");
-      viz.start();
-      initSettingsUI();
       return;
     }
 
@@ -520,6 +290,7 @@ async function init() {
       }
     }
 
+    // Wait for SDK
     await spotifySDKReady;
 
     player = new Spotify.Player({
@@ -531,6 +302,7 @@ async function init() {
       volume: 0.5,
     });
 
+    // Listeners
     player.addListener("ready", async ({ device_id }) => {
       deviceId = device_id;
       status(`Player ready on device ${device_id}. Transferring playback...`);
@@ -557,31 +329,31 @@ async function init() {
 
     player.addListener("player_state_changed", onPlayerState);
 
+    // Connect
     const connected = await player.connect();
     if (!connected) {
       status("Failed to connect Spotify player.");
-      viz.start();
-      initSettingsUI();
       return;
     }
 
-    bindPlayerControls();
+    // Bind controls
+    bindControls();
 
+    // Start visualizer
     viz.start();
-    initSettingsUI();
   } catch (e) {
     console.error(e);
     status(e.message || "Error initializing app");
-    viz.start();
-    initSettingsUI();
   }
 }
 
-function bindPlayerControls() {
+function bindControls() {
   playBtn.addEventListener("click", async () => {
     try {
+      // toggle via SDK where possible
       await player.togglePlay();
     } catch {
+      // fallback via Web API
       if (isPlaying) await pausePlayback();
       else await startResumePlayback();
     }
@@ -614,6 +386,9 @@ function bindPlayerControls() {
       console.warn(e);
     }
   });
+
+  loginBtn.addEventListener("click", login);
+  logoutBtn.addEventListener("click", logout);
 }
 
 function updateAuthUI(isAuthed) {
@@ -645,11 +420,10 @@ async function onPlayerState(state) {
     const imgUrl = img?.url || "";
     if (imgUrl) {
       albumArt.src = imgUrl;
-      if (!settings.lockPalette && settings.colorMode === "album") {
-        updatePaletteFromImage(imgUrl).catch(console.warn);
-      }
+      updatePaletteFromImage(imgUrl).catch(console.warn);
     }
 
+    // Audio features for tempo/energy
     try {
       const id = (track.uri || "").split(":").pop();
       if (id) {
@@ -663,15 +437,16 @@ async function onPlayerState(state) {
   }
 }
 
-// Palette extraction
+// Extract a compact palette from an image by sampling
 async function updatePaletteFromImage(url) {
   const img = await loadImage(url);
   const colors = extractPalette(img, 5);
-  if (settings.colorMode === "album" && !settings.lockPalette) {
-    viz.setPalette(colors);
-    document.documentElement.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
-  }
+  viz.setPalette(colors);
+  // update page accent
+  const root = document.documentElement;
+  root.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
 }
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -681,34 +456,42 @@ function loadImage(src) {
     img.src = src;
   });
 }
+
 function extractPalette(image, maxColors = 5) {
+  // Quantize by reducing RGB resolution, then pick top buckets
   const canvas = document.createElement("canvas");
-  const w = (canvas.width = Math.min(240, image.naturalWidth || image.width));
-  const h = (canvas.height = Math.min(240, image.naturalHeight || image.height));
+  const w = (canvas.width = Math.min(240, image.naturalWidth));
+  const h = (canvas.height = Math.min(240, image.naturalHeight));
   const ctx = canvas.getContext("2d");
   ctx.drawImage(image, 0, 0, w, h);
   const { data } = ctx.getImageData(0, 0, w, h);
 
   const buckets = new Map();
-  const step = 4 * 4;
+  const step = 4 * 4; // sample every 4 pixels for speed
   for (let i = 0; i < data.length; i += step) {
     const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
     if (a < 128) continue;
+    // Drop very dark/very bright extremes less frequently
     const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    if (luma <= 30) continue;
+    const keep = luma > 30;
+    if (!keep) continue;
+
+    // 4-bit quantization per channel
     const rq = r & 0xF0, gq = g & 0xF0, bq = b & 0xF0;
     const key = (rq << 16) | (gq << 8) | bq;
     buckets.set(key, (buckets.get(key) || 0) + 1);
   }
 
   const top = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxColors + 2);
+  // Convert to hex; ensure some contrast by sorting by luma and picking
   const colors = top.map(([key]) => {
     const r = (key >> 16) & 0xFF;
     const g = (key >> 8) & 0xFF;
     const b = key & 0xFF;
-    return "#" + [r, g, b].map(n => n.toString(16).padStart(2, "0")).join("");
+    return rgbToHex(r, g, b);
   });
 
+  // Prefer a darker base first for background glow, then brighter accents
   const withLuma = colors.map(c => ({ c, l: hexLuma(c) }));
   withLuma.sort((a, b) => a.l - b.l);
   const ordered = [
@@ -718,8 +501,13 @@ function extractPalette(image, maxColors = 5) {
     ...withLuma.slice(1, -1).map(x => x.c),
   ].filter(Boolean);
 
+  // Unique
   const uniq = [...new Set(ordered)];
   return uniq.slice(0, maxColors);
+}
+
+function rgbToHex(r, g, b) {
+  return "#" + [r, g, b].map(n => n.toString(16).padStart(2, "0")).join("");
 }
 function hexLuma(hex) {
   let c = hex.replace("#", "");
