@@ -2,6 +2,16 @@
 // Reads client id from global window.SPOTIFY_CLIENT_ID to work on GitHub Pages.
 import { Visualizer, THEMES } from "./visualizer.js";
 
+// Canonicalize directory URL to have a trailing slash (prevents redirect_uri mismatches on Pages)
+(function canonicalizePath() {
+  const path = location.pathname;
+  const looksLikeFile = /\.[^/]+$/.test(path);
+  if (!path.endsWith("/") && !looksLikeFile) {
+    const newUrl = path + "/" + location.search + location.hash;
+    history.replaceState({}, "", newUrl);
+  }
+})();
+
 // -------- DOM Refs --------
 const $ = (sel) => document.querySelector(sel);
 const loginBtn = $("#login-btn");
@@ -226,14 +236,18 @@ function applyTheme() {
 function status(msg) { console.log("[status]", msg); if (statusEl) statusEl.textContent = msg; }
 
 // -------- Redirect URI (Spotify 2025 rules) --------
+function canonicalDirHref() {
+  const path = location.pathname;
+  const looksLikeFile = /\.[^/]+$/.test(path);
+  const dir = path.endsWith("/") || looksLikeFile ? path : path + "/";
+  return location.origin + dir;
+}
 function computeRedirectUri() {
-  const u = new URL("./", window.location.href);
-  const isHttps = u.protocol === "https:";
-  const host = u.hostname;
-  const isLoopback = host === "127.0.0.1" || host === "::1";
-  if (isHttps || isLoopback) return u.toString();
-  if (host === "localhost" || host === "0.0.0.0") { u.hostname = "127.0.0.1"; return u.toString(); }
-  return u.toString();
+  const url = canonicalDirHref();
+  const host = location.hostname;
+  if (location.protocol === "https:" || host === "127.0.0.1" || host === "::1") return url;
+  if (host === "localhost" || host === "0.0.0.0") return url.replace(location.hostname, "127.0.0.1");
+  return url;
 }
 const REDIRECT_URI = computeRedirectUri();
 const SCOPES = ["streaming","user-read-email","user-read-private","user-read-playback-state","user-modify-playback-state"].join(" ");
@@ -241,6 +255,7 @@ const SCOPES = ["streaming","user-read-email","user-read-private","user-read-pla
 // -------- Auth (PKCE) --------
 const LS_KEY = "sp_auth";
 const VERIFIER_KEY = "sp_verifier";
+const REDIRECT_USED_KEY = "redirect_uri_used";
 const SPOTIFY_CLIENT_ID = window.SPOTIFY_CLIENT_ID || "";
 
 function randomString(length = 64) {
@@ -261,7 +276,7 @@ function saveTokens(tokens) {
   return data;
 }
 function getTokens() { try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
-function clearTokens() { try { localStorage.removeItem(LS_KEY); } catch {}; try { sessionStorage.removeItem(VERIFIER_KEY); } catch {} }
+function clearTokens() { try { localStorage.removeItem(LS_KEY); } catch {}; try { sessionStorage.removeItem(VERIFIER_KEY); } catch {}; try { sessionStorage.removeItem(REDIRECT_USED_KEY); } catch {} }
 
 async function ensureAccessToken() {
   let tok = getTokens();
@@ -273,31 +288,48 @@ async function ensureAccessToken() {
     params.set("grant_type", "refresh_token");
     params.set("refresh_token", tok.refresh_token);
     const res = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
-    if (!res.ok) { clearTokens(); throw new Error("Failed to refresh token"); }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      clearTokens();
+      throw new Error(`Failed to refresh token: ${text || res.status}`);
+    }
     const data = await res.json();
     tok = saveTokens({ ...tok, ...data, refresh_token: data.refresh_token || tok.refresh_token });
     return tok.access_token;
   }
 
+  // Authorization code present?
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const storedState = sessionStorage.getItem("pkce_state");
   if (code) {
-    if (storedState && state !== storedState) throw new Error("State mismatch; aborting auth.");
+    if (storedState && state !== storedState) {
+      throw new Error("State mismatch; aborting auth.");
+    }
     const verifier = sessionStorage.getItem(VERIFIER_KEY);
-    if (!verifier) throw new Error("Missing PKCE verifier");
+    if (!verifier) throw new Error("Missing PKCE verifier (sessionStorage).");
+
+    const usedRedirect = sessionStorage.getItem(REDIRECT_USED_KEY) || REDIRECT_URI;
+
     const params = new URLSearchParams();
     params.set("client_id", SPOTIFY_CLIENT_ID);
     params.set("grant_type", "authorization_code");
     params.set("code", code);
-    params.set("redirect_uri", REDIRECT_URI);
+    params.set("redirect_uri", usedRedirect);
     params.set("code_verifier", verifier);
+
     const res = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
-    if (!res.ok) throw new Error("Token exchange failed");
-    const data = await res.json();
+    const bodyText = await res.text().catch(() => "");
+    if (!res.ok) {
+      throw new Error(`Token exchange failed: ${bodyText || res.status}`);
+    }
+    const data = JSON.parse(bodyText);
     saveTokens(data);
-    window.history.replaceState({}, document.title, new URL("./", window.location.href).toString());
+
+    // Clean URL back to canonical directory
+    const clean = canonicalDirHref();
+    window.history.replaceState({}, document.title, clean);
     return data.access_token;
   }
 
@@ -306,20 +338,28 @@ async function ensureAccessToken() {
 
 async function login() {
   if (!SPOTIFY_CLIENT_ID) { status("Missing Spotify Client ID in config.js"); return; }
-  const verifier = randomString(96);
-  const challenge = await sha256(verifier);
-  const state = randomString(16);
-  sessionStorage.setItem(VERIFIER_KEY, verifier);
-  sessionStorage.setItem("pkce_state", state);
-  const params = new URLSearchParams();
-  params.set("client_id", SPOTIFY_CLIENT_ID);
-  params.set("response_type", "code");
-  params.set("redirect_uri", REDIRECT_URI);
-  params.set("code_challenge_method", "S256");
-  params.set("code_challenge", challenge);
-  params.set("state", state);
-  params.set("scope", SCOPES);
-  window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
+  try {
+    const verifier = randomString(96);
+    const challenge = await sha256(verifier);
+    const state = randomString(16);
+    sessionStorage.setItem(VERIFIER_KEY, verifier);
+    sessionStorage.setItem("pkce_state", state);
+    sessionStorage.setItem(REDIRECT_USED_KEY, REDIRECT_URI); // record exact redirect used
+
+    const params = new URLSearchParams();
+    params.set("client_id", SPOTIFY_CLIENT_ID);
+    params.set("response_type", "code");
+    params.set("redirect_uri", REDIRECT_URI);
+    params.set("code_challenge_method", "S256");
+    params.set("code_challenge", challenge);
+    params.set("state", state);
+    params.set("scope", SCOPES);
+
+    window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
+  } catch (e) {
+    console.error(e);
+    status("Failed to start login. See console for details.");
+  }
 }
 function logout() { clearTokens(); location.reload(); }
 loginBtn.addEventListener("click", login);
@@ -359,7 +399,7 @@ async function init() {
     const token = await ensureAccessToken();
     updateAuthUI(!!token);
 
-    // Settings UI is independent; start visualizer and UI immediately
+    // Settings/UI independent; start visualizer and UI immediately
     viz.start();
     initSettingsUI();
 
@@ -395,7 +435,8 @@ async function init() {
 
     bindPlayerControls();
   } catch (e) {
-    console.error(e); status(e.message || "Error initializing app");
+    console.error(e);
+    status(e.message || "Error initializing app");
   }
 }
 
@@ -410,6 +451,11 @@ function bindPlayerControls() {
     try { await player.seek(posMs); } catch (e) { console.warn(e); }
   });
   volumeSlider.addEventListener("input", async () => { const vol = Number(volumeSlider.value) / 100; try { await player.setVolume(vol); } catch (e) { console.warn(e); } });
+}
+
+function updateAuthUI(isAuthed) {
+  loginBtn.hidden = !!isAuthed;
+  logoutBtn.hidden = !isAuthed;
 }
 
 async function onPlayerState(state) {
@@ -432,11 +478,9 @@ async function onPlayerState(state) {
     const imgUrl = img?.url || "";
     if (imgUrl) {
       albumArt.src = imgUrl;
-      // album palette & texture
       updatePaletteFromImage(imgUrl).catch(console.warn);
     }
 
-    // Audio features & analysis (once per track)
     try {
       const id = track.id || (track.uri || "").split(":").pop();
       if (id && firstTrackChange) {
@@ -457,7 +501,6 @@ async function onPlayerState(state) {
     }
   }
 
-  // Update analysis mapping continuously
   _updateAnalysisMapping();
 }
 
@@ -466,7 +509,6 @@ let lastBeatIdx = -1, lastBarIdx = -1, lastSectionIdx = -1;
 
 function _findIndexByTime(arr, t) {
   if (!arr || !arr.length) return -1;
-  // linear probe (short arrays) or binary search; analysis arrays are moderate, linear is fine
   for (let i = 0; i < arr.length; i++) {
     const a = arr[i];
     if (t < a.start + a.duration) return i;
@@ -482,11 +524,10 @@ function _updateAnalysisMapping() {
   const beats = analysis.beats, bars = analysis.bars, sections = analysis.sections;
   const bi = _findIndexByTime(beats, posSec), bai = _findIndexByTime(bars, posSec), si = _findIndexByTime(sections, posSec);
 
-  // notify on changes
-  const driver = {}; // not used directly here; viz uses internal driver
-  if (bi !== lastBeatIdx) { lastBeatIdx = bi; viz.updateAnalysis({ beatIndex: bi, barIndex: bai, sectionIndex: si, time: posSec }); }
-  else if (bai !== lastBarIdx) { lastBarIdx = bai; viz.updateAnalysis({ beatIndex: bi, barIndex: bai, sectionIndex: si, time: posSec }); }
-  else if (si !== lastSectionIdx) { lastSectionIdx = si; viz.updateAnalysis({ beatIndex: bi, barIndex: bai, sectionIndex: si, time: posSec }); }
+  if (bi !== lastBeatIdx || bai !== lastBarIdx || si !== lastSectionIdx) {
+    lastBeatIdx = bi; lastBarIdx = bai; lastSectionIdx = si;
+    viz.updateAnalysis({ beatIndex: bi, barIndex: bai, sectionIndex: si, time: posSec });
+  }
 }
 
 // Palette extraction and album texture
@@ -542,8 +583,8 @@ overlay.addEventListener("click", closeDrawer);
 // UI auth hint
 if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") status("Set your Spotify Client ID in config.js (window.SPOTIFY_CLIENT_ID).");
 else {
-  const url = new URL(REDIRECT_URI);
-  if (url.protocol === "http:" && !(url.hostname === "127.0.0.1" || url.hostname === "::1")) status("Warning: Spotify requires HTTPS for non-loopback redirect URIs.");
+  const u = new URL(REDIRECT_URI);
+  if (u.protocol === "http:" && !(u.hostname === "127.0.0.1" || u.hostname === "::1")) status("Warning: Spotify requires HTTPS for non-loopback redirect URIs.");
 }
 
 // Kick off
