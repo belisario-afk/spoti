@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Spotify Visualizer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./styles.css" />
+    <meta name="color-scheme" content="dark light" />
+  </head>
+  <body>
+    <canvas id="visualizer"></canvas>
+
+    <main id="app">
+      <header>
+        <h1>Spotify Visualizer</h1>
+        <div id="auth">
+          <button id="login-btn" class="primary">Log in with Spotify</button>
+          <button id="logout-btn" class="ghost" hidden>Log out</button>
+        </div>
+      </header>
+
+      <section id="user" hidden>
+        <img id="user-avatar" alt="" />
+        <div>
+          <div id="user-name"></div>
+          <div id="user-product" class="badge"></div>
+        </div>
+      </section>
+
+      <section id="player" hidden>
+        <div id="track">
+          <img id="album-art" alt="Album Art" />
+          <div class="meta">
+            <div id="track-name" class="title">—</div>
+            <div id="track-artist" class="subtitle">—</div>
+            <div id="track-album" class="subtitle muted">—</div>
+          </div>
+        </div>
+
+        <div id="controls">
+          <button id="prev" title="Previous">⏮</button>
+          <button id="play" title="Play/Pause">⏯</button>
+          <button id="next" title="Next">⏭</button>
+          <div id="time">
+            <span id="elapsed">0:00</span>
+            <input type="range" id="seek" min="0" max="1000" value="0" />
+            <span id="duration">0:00</span>
+          </div>
+          <div id="volume">
+            🔊
+            <input type="range" id="volume-slider" min="0" max="100" value="50" />
+          </div>
+        </div>
+
+        <div id="status" class="muted"></div>
+      </section>
+
+      <footer>
+        <p class="muted small">
+          Spotify Premium is required for in-browser playback using the Web Playback SDK. Colors and motion adapt to the current album cover and track tempo.
+        </p>
+      </footer>
+    </main>
+
+    <!-- Config: copy config.example.js to config.js and set your CLIENT_ID -->
+    <script src="./config.js"></script>
+    <!-- Spotify Web Playback SDK -->
+    <script async src="https://sdk.scdn.co/spotify-player.js"></script>
+    <!-- App scripts -->
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
