@@ -1,4 +1,4 @@
-// App entry: Spotify auth (PKCE), SDK, advanced visualizer control, analysis mapping.
+// App entry: Spotify auth (PKCE), SDK, visualizer control, analysis mapping.
 // Reads client id from global window.SPOTIFY_CLIENT_ID to work on GitHub Pages.
 import { Visualizer, THEMES } from "./visualizer.js";
 
@@ -67,6 +67,10 @@ const keyframesChk = $("#enable-keyframes");
 
 const out = (id) => drawer?.querySelector(`[data-out="${id}"]`);
 
+// -------- Helpers --------
+function status(msg) { console.log("[status]", msg); if (statusEl) statusEl.textContent = msg; }
+function updateAuthUI(isAuthed) { if (loginBtn) loginBtn.hidden = !!isAuthed; if (logoutBtn) logoutBtn.hidden = !isAuthed; }
+
 // -------- Device detection --------
 const ua = navigator.userAgent || "";
 const isIPhone = /\biPhone\b/.test(ua) || (/\bCPU iPhone OS\b/.test(ua) && /\bMobile\b/.test(ua));
@@ -86,28 +90,19 @@ const defaultSettings = {
   bloomStrength: 0.28,
   dprCap: isIPhone ? 1.5 : Math.max(1, window.devicePixelRatio || 1),
 
-  // layers
   layers: { rings: true, particles: true, orbit: false, tunnel: true, ripples: false, ribbons: false, kaleido: false, covers: true },
-
-  // fx
   fx: { vignette: true, grain: true, chroma: false, bloom: true, dof: false },
-
-  // camera
   camMode: "none",
   camShake: 0,
   camGyro: false,
-
-  // analysis & keyframes
   mapAnalysis: true,
   keyframesDemo: false,
 };
 const LS_SETTINGS = "viz_settings_v4";
 
 function loadSettings() {
-  try {
-    const raw = localStorage.getItem(LS_SETTINGS);
-    return raw ? { ...defaultSettings, ...JSON.parse(raw) } : { ...defaultSettings };
-  } catch { return { ...defaultSettings }; }
+  try { const raw = localStorage.getItem(LS_SETTINGS); return raw ? { ...defaultSettings, ...JSON.parse(raw) } : { ...defaultSettings }; }
+  catch { return { ...defaultSettings }; }
 }
 function saveSettings(s) { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); } catch {} }
 let settings = loadSettings();
@@ -132,91 +127,65 @@ viz.setCameraGyro(settings.camGyro);
 
 // -------- Settings UI --------
 function initSettingsUI() {
-  // Theme
+  if (!themeSel) return; // HTML not updated yet
   themeSel.value = settings.theme;
   customColorField.hidden = settings.theme !== "mono";
   customColorInp.value = settings.customColor;
   lockPaletteChk.checked = settings.lockPalette;
 
-  // Global
   complexityRange.value = String(settings.complexity);
   rotationRange.value = String(settings.rotationMul);
   pulseRange.value = String(settings.pulseMul);
   glowRange.value = String(settings.glowOpacity);
   trailRange.value = String(settings.trailAlpha);
   bloomRange.value = String(settings.bloomStrength);
-  if (out("complexity-val")) out("complexity-val").textContent = settings.complexity.toFixed(1);
-  if (out("rotation-val")) out("rotation-val").textContent = settings.rotationMul.toFixed(1);
-  if (out("pulse-val")) out("pulse-val").textContent = settings.pulseMul.toFixed(2);
-  if (out("glow-val")) out("glow-val").textContent = settings.glowOpacity.toFixed(2);
-  if (out("trail-val")) out("trail-val").textContent = settings.trailAlpha.toFixed(2);
-  if (out("bloom-val")) out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
+  out("complexity-val") && (out("complexity-val").textContent = settings.complexity.toFixed(1));
+  out("rotation-val") && (out("rotation-val").textContent = settings.rotationMul.toFixed(1));
+  out("pulse-val") && (out("pulse-val").textContent = settings.pulseMul.toFixed(2));
+  out("glow-val") && (out("glow-val").textContent = settings.glowOpacity.toFixed(2));
+  out("trail-val") && (out("trail-val").textContent = settings.trailAlpha.toFixed(2));
+  out("bloom-val") && (out("bloom-val").textContent = settings.bloomStrength.toFixed(2));
 
-  // Layers
-  for (const id of layerIds) layerCheckboxes[id].checked = !!settings.layers[id];
+  for (const id of layerIds) layerCheckboxes[id] && (layerCheckboxes[id].checked = !!settings.layers[id]);
+  for (const id of fxIds) fxCheckboxes[id] && (fxCheckboxes[id].checked = !!settings.fx[id]);
 
-  // FX
-  for (const id of fxIds) fxCheckboxes[id].checked = !!settings.fx[id];
+  camModeSel && (camModeSel.value = settings.camMode);
+  camShake && (camShake.value = String(settings.camShake));
+  out("shake-val") && (out("shake-val").textContent = settings.camShake);
+  camGyro && (camGyro.checked = settings.camGyro);
 
-  // Camera
-  camModeSel.value = settings.camMode;
-  camShake.value = String(settings.camShake);
-  if (out("shake-val")) out("shake-val").textContent = settings.camShake;
-  camGyro.checked = settings.camGyro;
+  mapAnalysisChk && (mapAnalysisChk.checked = settings.mapAnalysis);
+  keyframesChk && (keyframesChk.checked = settings.keyframesDemo);
 
-  // Analysis & keyframes
-  mapAnalysisChk.checked = settings.mapAnalysis;
-  keyframesChk.checked = settings.keyframesDemo;
-
-  // Bindings
-  themeSel.addEventListener("change", () => {
-    settings.theme = themeSel.value; saveSettings(settings);
-    customColorField.hidden = settings.theme !== "mono";
-    applyTheme();
-  });
-  customColorInp.addEventListener("input", () => {
-    settings.customColor = customColorInp.value; saveSettings(settings);
-    viz.setCustomMono(settings.customColor);
-    if (settings.theme === "mono") applyTheme();
-  });
+  themeSel.addEventListener("change", () => { settings.theme = themeSel.value; saveSettings(settings); customColorField.hidden = settings.theme !== "mono"; applyTheme(); });
+  customColorInp.addEventListener("input", () => { settings.customColor = customColorInp.value; saveSettings(settings); viz.setCustomMono(settings.customColor); if (settings.theme === "mono") applyTheme(); });
   lockPaletteChk.addEventListener("change", () => { settings.lockPalette = lockPaletteChk.checked; saveSettings(settings); });
 
-  complexityRange.addEventListener("input", () => { settings.complexity = Number(complexityRange.value); saveSettings(settings); if (out("complexity-val")) out("complexity-val").textContent = settings.complexity.toFixed(1); viz.configure({ complexity: settings.complexity }); });
-  rotationRange.addEventListener("input", () => { settings.rotationMul = Number(rotationRange.value); saveSettings(settings); if (out("rotation-val")) out("rotation-val").textContent = settings.rotationMul.toFixed(1); viz.configure({ rotationMul: settings.rotationMul }); });
-  pulseRange.addEventListener("input", () => { settings.pulseMul = Number(pulseRange.value); saveSettings(settings); if (out("pulse-val")) out("pulse-val").textContent = settings.pulseMul.toFixed(2); viz.configure({ pulseMul: settings.pulseMul }); });
-  glowRange.addEventListener("input", () => { settings.glowOpacity = Number(glowRange.value); saveSettings(settings); if (out("glow-val")) out("glow-val").textContent = settings.glowOpacity.toFixed(2); viz.configure({ glowOpacity: settings.glowOpacity }); });
-  trailRange.addEventListener("input", () => { settings.trailAlpha = Number(trailRange.value); saveSettings(settings); if (out("trail-val")) out("trail-val").textContent = settings.trailAlpha.toFixed(2); viz.configure({ trailAlpha: settings.trailAlpha }); });
-  bloomRange.addEventListener("input", () => { settings.bloomStrength = Number(bloomRange.value); saveSettings(settings); if (out("bloom-val")) out("bloom-val").textContent = settings.bloomStrength.toFixed(2); viz.configure({ bloomStrength: settings.bloomStrength }); });
+  complexityRange.addEventListener("input", () => { settings.complexity = Number(complexityRange.value); saveSettings(settings); out("complexity-val") && (out("complexity-val").textContent = settings.complexity.toFixed(1)); viz.configure({ complexity: settings.complexity }); });
+  rotationRange.addEventListener("input", () => { settings.rotationMul = Number(rotationRange.value); saveSettings(settings); out("rotation-val") && (out("rotation-val").textContent = settings.rotationMul.toFixed(1)); viz.configure({ rotationMul: settings.rotationMul }); });
+  pulseRange.addEventListener("input", () => { settings.pulseMul = Number(pulseRange.value); saveSettings(settings); out("pulse-val") && (out("pulse-val").textContent = settings.pulseMul.toFixed(2)); viz.configure({ pulseMul: settings.pulseMul }); });
+  glowRange.addEventListener("input", () => { settings.glowOpacity = Number(glowRange.value); saveSettings(settings); out("glow-val") && (out("glow-val").textContent = settings.glowOpacity.toFixed(2)); viz.configure({ glowOpacity: settings.glowOpacity }); });
+  trailRange.addEventListener("input", () => { settings.trailAlpha = Number(trailRange.value); saveSettings(settings); out("trail-val") && (out("trail-val").textContent = settings.trailAlpha.toFixed(2)); viz.configure({ trailAlpha: settings.trailAlpha }); });
+  bloomRange.addEventListener("input", () => { settings.bloomStrength = Number(bloomRange.value); saveSettings(settings); out("bloom-val") && (out("bloom-val").textContent = settings.bloomStrength.toFixed(2)); viz.configure({ bloomStrength: settings.bloomStrength }); });
 
-  for (const id of layerIds) {
-    layerCheckboxes[id].addEventListener("change", () => {
-      settings.layers[id] = layerCheckboxes[id].checked; saveSettings(settings);
-      viz.setLayerEnabled(id, settings.layers[id]);
-    });
-  }
-  for (const id of fxIds) {
-    fxCheckboxes[id].addEventListener("change", () => {
-      settings.fx[id] = fxCheckboxes[id].checked; saveSettings(settings);
-      viz.setFx(id, settings.fx[id]);
-    });
-  }
+  for (const id of layerIds) layerCheckboxes[id] && layerCheckboxes[id].addEventListener("change", () => { settings.layers[id] = layerCheckboxes[id].checked; saveSettings(settings); viz.setLayerEnabled(id, settings.layers[id]); });
+  for (const id of fxIds) fxCheckboxes[id] && fxCheckboxes[id].addEventListener("change", () => { settings.fx[id] = fxCheckboxes[id].checked; saveSettings(settings); viz.setFx(id, settings.fx[id]); });
 
-  camModeSel.addEventListener("change", () => { settings.camMode = camModeSel.value; saveSettings(settings); viz.setCameraMode(settings.camMode); });
-  camShake.addEventListener("input", () => { settings.camShake = Number(camShake.value); if (out("shake-val")) out("shake-val").textContent = settings.camShake; saveSettings(settings); viz.setCameraShake(settings.camShake); });
-  camGyro.addEventListener("change", () => { settings.camGyro = camGyro.checked; saveSettings(settings); viz.setCameraGyro(settings.camGyro); });
+  camModeSel && camModeSel.addEventListener("change", () => { settings.camMode = camModeSel.value; saveSettings(settings); viz.setCameraMode(settings.camMode); });
+  camShake && camShake.addEventListener("input", () => { settings.camShake = Number(camShake.value); out("shake-val") && (out("shake-val").textContent = settings.camShake); saveSettings(settings); viz.setCameraShake(settings.camShake); });
+  camGyro && camGyro.addEventListener("change", () => { settings.camGyro = camGyro.checked; saveSettings(settings); viz.setCameraGyro(settings.camGyro); });
 
-  mapAnalysisChk.addEventListener("change", () => { settings.mapAnalysis = mapAnalysisChk.checked; saveSettings(settings); viz.setAnalysisEnabled(settings.mapAnalysis); });
-  keyframesChk.addEventListener("change", () => { settings.keyframesDemo = keyframesChk.checked; saveSettings(settings); if (settings.keyframesDemo) viz.enableKeyframeDemo(currentTrack?.duration_ms ? currentTrack.duration_ms / 1000 : 180); });
+  mapAnalysisChk && mapAnalysisChk.addEventListener("change", () => { settings.mapAnalysis = mapAnalysisChk.checked; saveSettings(settings); viz.setAnalysisEnabled(settings.mapAnalysis); });
+  keyframesChk && keyframesChk.addEventListener("change", () => { settings.keyframesDemo = keyframesChk.checked; saveSettings(settings); if (settings.keyframesDemo) viz.enableKeyframeDemo(currentTrack?.duration_ms ? currentTrack.duration_ms / 1000 : 180); });
 
-  // Drawer
-  settingsBtn.addEventListener("click", () => openDrawer());
-  drawerClose.addEventListener("click", () => closeDrawer());
-  overlay.addEventListener("click", () => closeDrawer());
+  settingsBtn && settingsBtn.addEventListener("click", () => openDrawer());
+  drawerClose && drawerClose.addEventListener("click", () => closeDrawer());
+  overlay && overlay.addEventListener("click", () => closeDrawer());
 
   applyTheme();
 }
-function openDrawer() { overlay.classList.add("open"); drawer.classList.add("open"); overlay.setAttribute("aria-hidden", "false"); drawer.setAttribute("aria-hidden", "false"); }
-function closeDrawer() { overlay.classList.remove("open"); drawer.classList.remove("open"); overlay.setAttribute("aria-hidden", "true"); drawer.setAttribute("aria-hidden", "true"); }
+function openDrawer() { overlay?.classList.add("open"); drawer?.classList.add("open"); overlay?.setAttribute("aria-hidden", "false"); drawer?.setAttribute("aria-hidden", "false"); }
+function closeDrawer() { overlay?.classList.remove("open"); drawer?.classList.remove("open"); overlay?.setAttribute("aria-hidden", "true"); drawer?.setAttribute("aria-hidden", "true"); }
 
 function applyTheme() {
   if (settings.theme === "album") {
@@ -231,9 +200,6 @@ function applyTheme() {
     document.documentElement.style.setProperty("--primary", primary);
   }
 }
-
-// -------- Status helper --------
-function status(msg) { console.log("[status]", msg); if (statusEl) statusEl.textContent = msg; }
 
 // -------- Redirect URI (Spotify 2025 rules) --------
 function canonicalDirHref() {
@@ -276,7 +242,11 @@ function saveTokens(tokens) {
   return data;
 }
 function getTokens() { try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
-function clearTokens() { try { localStorage.removeItem(LS_KEY); } catch {}; try { sessionStorage.removeItem(VERIFIER_KEY); } catch {}; try { sessionStorage.removeItem(REDIRECT_USED_KEY); } catch {} }
+function clearTokens() {
+  try { localStorage.removeItem(LS_KEY); } catch {}
+  try { sessionStorage.removeItem(VERIFIER_KEY); } catch {}
+  try { sessionStorage.removeItem(REDIRECT_USED_KEY); } catch {}
+}
 
 async function ensureAccessToken() {
   let tok = getTokens();
@@ -304,9 +274,7 @@ async function ensureAccessToken() {
   const state = url.searchParams.get("state");
   const storedState = sessionStorage.getItem("pkce_state");
   if (code) {
-    if (storedState && state !== storedState) {
-      throw new Error("State mismatch; aborting auth.");
-    }
+    if (storedState && state !== storedState) throw new Error("State mismatch; aborting auth.");
     const verifier = sessionStorage.getItem(VERIFIER_KEY);
     if (!verifier) throw new Error("Missing PKCE verifier (sessionStorage).");
 
@@ -321,9 +289,7 @@ async function ensureAccessToken() {
 
     const res = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
     const bodyText = await res.text().catch(() => "");
-    if (!res.ok) {
-      throw new Error(`Token exchange failed: ${bodyText || res.status}`);
-    }
+    if (!res.ok) throw new Error(`Token exchange failed: ${bodyText || res.status}`);
     const data = JSON.parse(bodyText);
     saveTokens(data);
 
@@ -337,7 +303,12 @@ async function ensureAccessToken() {
 }
 
 async function login() {
-  if (!SPOTIFY_CLIENT_ID) { status("Missing Spotify Client ID in config.js"); return; }
+  console.log("[login] click");
+  if (!SPOTIFY_CLIENT_ID) {
+    status("Missing Spotify Client ID in config.js (window.SPOTIFY_CLIENT_ID).");
+    alert("Missing Spotify Client ID. Edit config.js to set window.SPOTIFY_CLIENT_ID.");
+    return;
+  }
   try {
     const verifier = randomString(96);
     const challenge = await sha256(verifier);
@@ -355,15 +326,18 @@ async function login() {
     params.set("state", state);
     params.set("scope", SCOPES);
 
-    window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
+    const url = `https://accounts.spotify.com/authorize?${params.toString()}`;
+    console.log("[login] redirecting to", url);
+    window.location.assign(url);
   } catch (e) {
     console.error(e);
     status("Failed to start login. See console for details.");
+    alert("Failed to start login. See console for details.");
   }
 }
 function logout() { clearTokens(); location.reload(); }
-loginBtn.addEventListener("click", login);
-logoutBtn.addEventListener("click", logout);
+loginBtn?.addEventListener("click", login);
+logoutBtn?.addEventListener("click", logout);
 
 // -------- Spotify Web API helpers --------
 async function api(path, init = {}) {
@@ -393,19 +367,12 @@ window.onSpotifyWebPlaybackSDKReady = () => sdkReadyResolve();
 
 function msToTime(ms) { if (!ms || ms < 0) ms = 0; const s = Math.floor(ms / 1000); const m = Math.floor(s / 60); const ss = String(s % 60).padStart(2, "0"); return `${m}:${ss}`; }
 
-// -------- Add missing updateAuthUI to avoid ReferenceError --------
-function updateAuthUI(isAuthed) {
-  if (loginBtn) loginBtn.hidden = !!isAuthed;
-  if (logoutBtn) logoutBtn.hidden = !isAuthed;
-}
-
 // -------- App init --------
 async function init() {
   try {
     const token = await ensureAccessToken();
     updateAuthUI(!!token);
 
-    // Settings/UI independent; start visualizer and UI immediately
     viz.start();
     initSettingsUI();
 
@@ -505,11 +472,6 @@ async function onPlayerState(state) {
   _updateAnalysisMapping();
 }
 
-function updateAuthUI(isAuthed) {
-  if (loginBtn) loginBtn.hidden = !!isAuthed;
-  if (logoutBtn) logoutBtn.hidden = !isAuthed;
-}
-
 function _resetAnalysisIndices() { lastBeatIdx = lastBarIdx = lastSectionIdx = -1; }
 let lastBeatIdx = -1, lastBarIdx = -1, lastSectionIdx = -1;
 
@@ -546,11 +508,7 @@ async function updatePaletteFromImage(url) {
     document.documentElement.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
   }
 }
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => resolve(img); img.onerror = reject; img.src = src;
-  });
-}
+function loadImage(src) { return new Promise((resolve, reject) => { const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => resolve(img); img.onerror = reject; img.src = src; }); }
 function extractPalette(image, maxColors = 6) {
   const canvas = document.createElement("canvas");
   const w = (canvas.width = Math.min(240, image.naturalWidth || image.width));
@@ -558,7 +516,6 @@ function extractPalette(image, maxColors = 6) {
   const ctx = canvas.getContext("2d");
   ctx.drawImage(image, 0, 0, w, h);
   const { data } = ctx.getImageData(0, 0, w, h);
-
   const buckets = new Map();
   const step = 4 * 4;
   for (let i = 0; i < data.length; i += step) {
@@ -582,9 +539,9 @@ function extractPalette(image, maxColors = 6) {
 function hexLuma(hex) { let c = hex.replace("#", ""); if (c.length === 3) c = c.split("").map(ch => ch + ch).join(""); const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
 // Settings drawer
-settingsBtn.addEventListener("click", openDrawer);
-drawerClose.addEventListener("click", closeDrawer);
-overlay.addEventListener("click", closeDrawer);
+settingsBtn?.addEventListener("click", openDrawer);
+drawerClose?.addEventListener("click", closeDrawer);
+overlay?.addEventListener("click", closeDrawer);
 
 // UI auth hint
 if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") status("Set your Spotify Client ID in config.js (window.SPOTIFY_CLIENT_ID).");
