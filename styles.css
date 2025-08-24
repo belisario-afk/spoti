@@ -4,13 +4,11 @@
   --text: #e8e8ef;
   --muted: #9aa0ab;
   --primary: #1db954;
-  --accent: #3ddc97;
-  --danger: #ff5c5c;
   --radius: 14px;
   --gap: 16px;
   --shadow: 0 10px 30px rgba(0,0,0,.25);
   --overlay: rgba(0,0,0,.5);
-  --drawer-w: 360px;
+  --drawer-w: 420px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -30,7 +28,7 @@ html, body {
   position: fixed;
   inset: 0;
   width: 100%;
-  height: 100dvh; /* iOS friendly */
+  height: 100dvh; /* iOS-friendly viewport height */
   display: block;
   z-index: 0;
   touch-action: none;
@@ -39,7 +37,7 @@ html, body {
 #app {
   position: relative;
   z-index: 1;
-  max-width: 960px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: calc(12px + var(--safe-top)) 24px calc(16px + var(--safe-bottom));
 }
@@ -70,7 +68,7 @@ button {
   appearance: none;
   background: var(--panel);
   color: var(--text);
-  border: 1px solid rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
   padding: 10px 14px;
   border-radius: 999px;
   cursor: pointer;
@@ -78,7 +76,7 @@ button {
   transition: transform .12s ease, filter .12s ease, background .2s ease;
 }
 button.primary { background: var(--primary); color: #041b0b; border-color: transparent; font-weight: 700; }
-button.ghost { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1) }
+button.ghost { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12) }
 button:hover { filter: brightness(1.06); transform: translateY(-1px); }
 button:active { transform: translateY(0); }
 
@@ -181,14 +179,8 @@ footer { margin-top: 20px; }
   overflow-y: auto;
 }
 
-#overlay.open {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-#drawer.open {
-  transform: translateX(0);
-}
+#overlay.open { opacity: 1; pointer-events: auto; }
+#drawer.open { transform: translateX(0); }
 
 .drawer-header {
   position: sticky;
@@ -203,12 +195,8 @@ footer { margin-top: 20px; }
   border-bottom: 1px solid rgba(255,255,255,.06);
 }
 
-.drawer-section {
-  padding: 12px 16px 4px;
-}
-.drawer-section h3 {
-  margin: 8px 0 10px;
-}
+.drawer-section { padding: 12px 16px 6px; }
+.drawer-section h3 { margin: 8px 0 10px; }
 
 .field {
   display: grid;
@@ -221,21 +209,22 @@ footer { margin-top: 20px; }
 .field input[type="color"] {
   width: 48px; height: 32px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); background: transparent;
 }
+
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row.wrap { flex-wrap: wrap; }
 .chip {
   border-radius: 999px;
   padding: 6px 12px;
   background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.12);
   cursor: pointer;
+  user-select: none;
 }
+.chip.active { outline: 2px solid var(--primary); }
 .chip:hover { filter: brightness(1.08); }
 
 /* iPhone tweaks */
-.iphone #app {
-  padding-left: 16px;
-  padding-right: 16px;
-}
+.iphone #app { padding-left: 16px; padding-right: 16px; }
 .iphone button { padding: 10px 16px; }
 .iphone #drawer { width: 100%; }
 
