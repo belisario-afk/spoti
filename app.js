@@ -1,16 +1,5 @@
-// App entry: Spotify auth (PKCE), SDK, visualizer control, analysis mapping.
-// Reads client id from global window.SPOTIFY_CLIENT_ID to work on GitHub Pages.
-import { Visualizer, THEMES } from "./visualizer.js";
-
-// Canonicalize directory URL to have a trailing slash (prevents redirect_uri mismatches on Pages)
-(function canonicalizePath() {
-  const path = location.pathname;
-  const looksLikeFile = /\.[^/]+$/.test(path);
-  if (!path.endsWith("/") && !looksLikeFile) {
-    const newUrl = path + "/" + location.search + location.hash;
-    history.replaceState({}, "", newUrl);
-  }
-})();
+import { SPOTIFY_CLIENT_ID } from "./config.js";
+import { Visualizer } from "./visualizer.js";
 
 // -------- DOM Refs --------
 const $ = (sel) => document.querySelector(sel);
@@ -40,212 +29,332 @@ const volumeSlider = $("#volume-slider");
 const statusEl = $("#status");
 
 // Settings controls
-const themeSel = $("#theme");
+const colorModeSel = $("#color-mode");
 const customColorInp = $("#custom-color");
-const customColorField = $("#custom-color-field");
 const lockPaletteChk = $("#lock-palette");
 
-const complexityRange = $("#complexity");
+const ringsRange = $("#rings");
+const barsRange = $("#bars");
 const rotationRange = $("#rotation");
 const pulseRange = $("#pulse");
 const glowRange = $("#glow");
 const trailRange = $("#trail");
 const bloomRange = $("#bloom");
-
-const layerIds = ["rings","particles","orbit","tunnel","ripples","ribbons","kaleido","covers"];
-const layerCheckboxes = Object.fromEntries(layerIds.map(id => [id, $("#layer-" + id)]));
-
-const fxIds = ["vignette","grain","chroma","bloom","dof"];
-const fxCheckboxes = Object.fromEntries(fxIds.map(id => [id, $("#fx-" + id)]));
-
-const camModeSel = $("#cam-mode");
-const camShake = $("#cam-shake");
-const camGyro = $("#cam-gyro");
-
-const mapAnalysisChk = $("#map-analysis");
-const keyframesChk = $("#enable-keyframes");
-
-const out = (id) => drawer?.querySelector(`[data-out="${id}"]`);
-
-// -------- Helpers --------
-function status(msg) { console.log("[status]", msg); if (statusEl) statusEl.textContent = msg; }
-function updateAuthUI(isAuthed) { if (loginBtn) loginBtn.hidden = !!isAuthed; if (logoutBtn) logoutBtn.hidden = !isAuthed; }
+const out = (id) => drawer.querySelector(`[data-out="${id}"]`);
 
 // -------- Device detection --------
 const ua = navigator.userAgent || "";
 const isIPhone = /\biPhone\b/.test(ua) || (/\bCPU iPhone OS\b/.test(ua) && /\bMobile\b/.test(ua));
+const isIOS = isIPhone || /\biPad\b/.test(ua);
 if (isIPhone) document.documentElement.classList.add("iphone");
 
-// -------- Visualizer defaults --------
+// -------- Visualizer --------
 const defaultSettings = {
-  theme: "album",
+  colorMode: "album", // album | brand | mono
   customColor: "#1db954",
   lockPalette: false,
-
-  complexity: isIPhone ? 0.9 : 1.1,
+  rings: isIPhone ? 2 : 3,
+  barsPerRing: isIPhone ? 36 : 48,
   rotationMul: 1.0,
   pulseMul: 1.0,
-  glowOpacity: 0.28,
+  glowOpacity: 0.25,
   trailAlpha: 0.06,
-  bloomStrength: 0.28,
+  bloomStrength: 0.22,
   dprCap: isIPhone ? 1.5 : Math.max(1, window.devicePixelRatio || 1),
-
-  layers: { rings: true, particles: true, orbit: false, tunnel: true, ripples: false, ribbons: false, kaleido: false, covers: true },
-  fx: { vignette: true, grain: true, chroma: false, bloom: true, dof: false },
-  camMode: "none",
-  camShake: 0,
-  camGyro: false,
-  mapAnalysis: true,
-  keyframesDemo: false,
 };
-const LS_SETTINGS = "viz_settings_v4";
+const LS_SETTINGS = "viz_settings_v2";
 
 function loadSettings() {
-  try { const raw = localStorage.getItem(LS_SETTINGS); return raw ? { ...defaultSettings, ...JSON.parse(raw) } : { ...defaultSettings }; }
-  catch { return { ...defaultSettings }; }
+  const raw = localStorage.getItem(LS_SETTINGS);
+  if (!raw) return { ...defaultSettings };
+  try {
+    return { ...defaultSettings, ...JSON.parse(raw) };
+  } catch {
+    return { ...defaultSettings };
+  }
 }
-function saveSettings(s) { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); } catch {} }
+function saveSettings(s) {
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(s));
+}
+
 let settings = loadSettings();
 
-// Visualizer
+// Visualizer instance
 const viz = new Visualizer(document.getElementById("visualizer"), {
+  rings: settings.rings,
+  barsPerRing: settings.barsPerRing,
   rotationMul: settings.rotationMul,
   pulseMul: settings.pulseMul,
   glowOpacity: settings.glowOpacity,
   trailAlpha: settings.trailAlpha,
   bloomStrength: settings.bloomStrength,
   dprCap: settings.dprCap,
-  complexity: settings.complexity,
 });
-viz.setTheme(settings.theme, null);
-viz.setCustomMono(settings.customColor);
-for (const [k, v] of Object.entries(settings.layers)) viz.setLayerEnabled(k, v);
-for (const [k, v] of Object.entries(settings.fx)) viz.setFx(k, v);
-viz.setCameraMode(settings.camMode);
-viz.setCameraShake(settings.camShake);
-viz.setCameraGyro(settings.camGyro);
 
-// -------- Settings UI --------
+// Initialize settings UI
 function initSettingsUI() {
-  if (!themeSel) return; // HTML not updated yet
-  themeSel.value = settings.theme;
-  customColorField.hidden = settings.theme !== "mono";
+  colorModeSel.value = settings.colorMode;
   customColorInp.value = settings.customColor;
   lockPaletteChk.checked = settings.lockPalette;
 
-  complexityRange.value = String(settings.complexity);
+  ringsRange.value = String(settings.rings);
+  barsRange.value = String(settings.barsPerRing);
   rotationRange.value = String(settings.rotationMul);
   pulseRange.value = String(settings.pulseMul);
   glowRange.value = String(settings.glowOpacity);
   trailRange.value = String(settings.trailAlpha);
   bloomRange.value = String(settings.bloomStrength);
-  out("complexity-val") && (out("complexity-val").textContent = settings.complexity.toFixed(1));
-  out("rotation-val") && (out("rotation-val").textContent = settings.rotationMul.toFixed(1));
-  out("pulse-val") && (out("pulse-val").textContent = settings.pulseMul.toFixed(2));
-  out("glow-val") && (out("glow-val").textContent = settings.glowOpacity.toFixed(2));
-  out("trail-val") && (out("trail-val").textContent = settings.trailAlpha.toFixed(2));
-  out("bloom-val") && (out("bloom-val").textContent = settings.bloomStrength.toFixed(2));
 
-  for (const id of layerIds) layerCheckboxes[id] && (layerCheckboxes[id].checked = !!settings.layers[id]);
-  for (const id of fxIds) fxCheckboxes[id] && (fxCheckboxes[id].checked = !!settings.fx[id]);
+  out("rings-val").textContent = settings.rings;
+  out("bars-val").textContent = settings.barsPerRing;
+  out("rotation-val").textContent = settings.rotationMul.toFixed(1);
+  out("pulse-val").textContent = settings.pulseMul.toFixed(2);
+  out("glow-val").textContent = settings.glowOpacity.toFixed(2);
+  out("trail-val").textContent = settings.trailAlpha.toFixed(2);
+  out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
 
-  camModeSel && (camModeSel.value = settings.camMode);
-  camShake && (camShake.value = String(settings.camShake));
-  out("shake-val") && (out("shake-val").textContent = settings.camShake);
-  camGyro && (camGyro.checked = settings.camGyro);
+  // Listeners
+  colorModeSel.addEventListener("change", () => {
+    settings.colorMode = colorModeSel.value;
+    applyColorMode();
+    saveSettings(settings);
+  });
+  customColorInp.addEventListener("input", () => {
+    settings.customColor = customColorInp.value;
+    if (settings.colorMode === "mono") applyColorMode();
+    saveSettings(settings);
+  });
+  lockPaletteChk.addEventListener("change", () => {
+    settings.lockPalette = lockPaletteChk.checked;
+    saveSettings(settings);
+  });
 
-  mapAnalysisChk && (mapAnalysisChk.checked = settings.mapAnalysis);
-  keyframesChk && (keyframesChk.checked = settings.keyframesDemo);
+  ringsRange.addEventListener("input", () => {
+    settings.rings = Number(ringsRange.value);
+    out("rings-val").textContent = settings.rings;
+    viz.configure({ rings: settings.rings });
+    saveSettings(settings);
+  });
+  barsRange.addEventListener("input", () => {
+    settings.barsPerRing = Number(barsRange.value);
+    out("bars-val").textContent = settings.barsPerRing;
+    viz.configure({ barsPerRing: settings.barsPerRing });
+    saveSettings(settings);
+  });
+  rotationRange.addEventListener("input", () => {
+    settings.rotationMul = Number(rotationRange.value);
+    out("rotation-val").textContent = settings.rotationMul.toFixed(1);
+    viz.configure({ rotationMul: settings.rotationMul });
+    saveSettings(settings);
+  });
+  pulseRange.addEventListener("input", () => {
+    settings.pulseMul = Number(pulseRange.value);
+    out("pulse-val").textContent = settings.pulseMul.toFixed(2);
+    viz.configure({ pulseMul: settings.pulseMul });
+    saveSettings(settings);
+  });
+  glowRange.addEventListener("input", () => {
+    settings.glowOpacity = Number(glowRange.value);
+    out("glow-val").textContent = settings.glowOpacity.toFixed(2);
+    viz.configure({ glowOpacity: settings.glowOpacity });
+    saveSettings(settings);
+  });
+  trailRange.addEventListener("input", () => {
+    settings.trailAlpha = Number(trailRange.value);
+    out("trail-val").textContent = settings.trailAlpha.toFixed(2);
+    viz.configure({ trailAlpha: settings.trailAlpha });
+    saveSettings(settings);
+  });
+  bloomRange.addEventListener("input", () => {
+    settings.bloomStrength = Number(bloomRange.value);
+    out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
+    viz.configure({ bloomStrength: settings.bloomStrength });
+    saveSettings(settings);
+  });
 
-  themeSel.addEventListener("change", () => { settings.theme = themeSel.value; saveSettings(settings); customColorField.hidden = settings.theme !== "mono"; applyTheme(); });
-  customColorInp.addEventListener("input", () => { settings.customColor = customColorInp.value; saveSettings(settings); viz.setCustomMono(settings.customColor); if (settings.theme === "mono") applyTheme(); });
-  lockPaletteChk.addEventListener("change", () => { settings.lockPalette = lockPaletteChk.checked; saveSettings(settings); });
+  // Presets
+  drawer.querySelectorAll(".chip[data-preset]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = btn.getAttribute("data-preset");
+      applyPreset(p);
+    });
+  });
 
-  complexityRange.addEventListener("input", () => { settings.complexity = Number(complexityRange.value); saveSettings(settings); out("complexity-val") && (out("complexity-val").textContent = settings.complexity.toFixed(1)); viz.configure({ complexity: settings.complexity }); });
-  rotationRange.addEventListener("input", () => { settings.rotationMul = Number(rotationRange.value); saveSettings(settings); out("rotation-val") && (out("rotation-val").textContent = settings.rotationMul.toFixed(1)); viz.configure({ rotationMul: settings.rotationMul }); });
-  pulseRange.addEventListener("input", () => { settings.pulseMul = Number(pulseRange.value); saveSettings(settings); out("pulse-val") && (out("pulse-val").textContent = settings.pulseMul.toFixed(2)); viz.configure({ pulseMul: settings.pulseMul }); });
-  glowRange.addEventListener("input", () => { settings.glowOpacity = Number(glowRange.value); saveSettings(settings); out("glow-val") && (out("glow-val").textContent = settings.glowOpacity.toFixed(2)); viz.configure({ glowOpacity: settings.glowOpacity }); });
-  trailRange.addEventListener("input", () => { settings.trailAlpha = Number(trailRange.value); saveSettings(settings); out("trail-val") && (out("trail-val").textContent = settings.trailAlpha.toFixed(2)); viz.configure({ trailAlpha: settings.trailAlpha }); });
-  bloomRange.addEventListener("input", () => { settings.bloomStrength = Number(bloomRange.value); saveSettings(settings); out("bloom-val") && (out("bloom-val").textContent = settings.bloomStrength.toFixed(2)); viz.configure({ bloomStrength: settings.bloomStrength }); });
+  // Drawer controls
+  settingsBtn.addEventListener("click", openDrawer);
+  drawerClose.addEventListener("click", closeDrawer);
+  overlay.addEventListener("click", closeDrawer);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+  });
 
-  for (const id of layerIds) layerCheckboxes[id] && layerCheckboxes[id].addEventListener("change", () => { settings.layers[id] = layerCheckboxes[id].checked; saveSettings(settings); viz.setLayerEnabled(id, settings.layers[id]); });
-  for (const id of fxIds) fxCheckboxes[id] && fxCheckboxes[id].addEventListener("change", () => { settings.fx[id] = fxCheckboxes[id].checked; saveSettings(settings); viz.setFx(id, settings.fx[id]); });
-
-  camModeSel && camModeSel.addEventListener("change", () => { settings.camMode = camModeSel.value; saveSettings(settings); viz.setCameraMode(settings.camMode); });
-  camShake && camShake.addEventListener("input", () => { settings.camShake = Number(camShake.value); out("shake-val") && (out("shake-val").textContent = settings.camShake); saveSettings(settings); viz.setCameraShake(settings.camShake); });
-  camGyro && camGyro.addEventListener("change", () => { settings.camGyro = camGyro.checked; saveSettings(settings); viz.setCameraGyro(settings.camGyro); });
-
-  mapAnalysisChk && mapAnalysisChk.addEventListener("change", () => { settings.mapAnalysis = mapAnalysisChk.checked; saveSettings(settings); viz.setAnalysisEnabled(settings.mapAnalysis); });
-  keyframesChk && keyframesChk.addEventListener("change", () => { settings.keyframesDemo = keyframesChk.checked; saveSettings(settings); if (settings.keyframesDemo) viz.enableKeyframeDemo(currentTrack?.duration_ms ? currentTrack.duration_ms / 1000 : 180); });
-
-  settingsBtn && settingsBtn.addEventListener("click", () => openDrawer());
-  drawerClose && drawerClose.addEventListener("click", () => closeDrawer());
-  overlay && overlay.addEventListener("click", () => closeDrawer());
-
-  applyTheme();
+  // Apply initial color mode
+  applyColorMode();
 }
-function openDrawer() { overlay?.classList.add("open"); drawer?.classList.add("open"); overlay?.setAttribute("aria-hidden", "false"); drawer?.setAttribute("aria-hidden", "false"); }
-function closeDrawer() { overlay?.classList.remove("open"); drawer?.classList.remove("open"); overlay?.setAttribute("aria-hidden", "true"); drawer?.setAttribute("aria-hidden", "true"); }
 
-function applyTheme() {
-  if (settings.theme === "album") {
+function openDrawer() {
+  overlay.classList.add("open");
+  drawer.classList.add("open");
+  overlay.setAttribute("aria-hidden", "false");
+  drawer.setAttribute("aria-hidden", "false");
+}
+function closeDrawer() {
+  overlay.classList.remove("open");
+  drawer.classList.remove("open");
+  overlay.setAttribute("aria-hidden", "true");
+  drawer.setAttribute("aria-hidden", "true");
+}
+
+function applyPreset(name) {
+  const presets = {
+    chill: {
+      rings: isIPhone ? 2 : 3,
+      barsPerRing: isIPhone ? 28 : 40,
+      rotationMul: 0.7,
+      pulseMul: 0.8,
+      glowOpacity: 0.32,
+      trailAlpha: 0.08,
+      bloomStrength: 0.28,
+    },
+    energetic: {
+      rings: isIPhone ? 3 : 4,
+      barsPerRing: isIPhone ? 44 : 64,
+      rotationMul: 1.6,
+      pulseMul: 1.6,
+      glowOpacity: 0.22,
+      trailAlpha: 0.04,
+      bloomStrength: 0.26,
+    },
+    minimal: {
+      rings: 1,
+      barsPerRing: 32,
+      rotationMul: 0.9,
+      pulseMul: 0.6,
+      glowOpacity: 0.18,
+      trailAlpha: 0.02,
+      bloomStrength: 0.15,
+    },
+  };
+  const p = presets[name];
+  if (!p) return;
+  Object.assign(settings, p);
+  viz.configure(p);
+
+  // Reflect in UI
+  ringsRange.value = String(settings.rings);
+  barsRange.value = String(settings.barsPerRing);
+  rotationRange.value = String(settings.rotationMul);
+  pulseRange.value = String(settings.pulseMul);
+  glowRange.value = String(settings.glowOpacity);
+  trailRange.value = String(settings.trailAlpha);
+  bloomRange.value = String(settings.bloomStrength);
+
+  out("rings-val").textContent = settings.rings;
+  out("bars-val").textContent = settings.barsPerRing;
+  out("rotation-val").textContent = settings.rotationMul.toFixed(1);
+  out("pulse-val").textContent = settings.pulseMul.toFixed(2);
+  out("glow-val").textContent = settings.glowOpacity.toFixed(2);
+  out("trail-val").textContent = settings.trailAlpha.toFixed(2);
+  out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
+
+  saveSettings(settings);
+}
+
+function applyColorMode() {
+  if (settings.colorMode === "album") {
+    // keep dynamic; palette updated per-track unless locked
     document.documentElement.style.setProperty("--primary", viz.palette[1] || viz.palette[0] || "#1db954");
-  } else if (settings.theme === "mono") {
-    viz.setTheme("mono");
-    document.documentElement.style.setProperty("--primary", settings.customColor);
-  } else {
-    viz.setTheme(settings.theme);
-    const p = THEMES[settings.theme];
-    const primary = p?.[0] || "#1db954";
-    document.documentElement.style.setProperty("--primary", primary);
+  } else if (settings.colorMode === "brand") {
+    const brand = ["#1db954", "#1db954", "#ffffff"];
+    viz.setPalette(brand);
+    document.documentElement.style.setProperty("--primary", brand[0]);
+  } else if (settings.colorMode === "mono") {
+    const c = settings.customColor || "#1db954";
+    viz.setPalette([c, c, "#ffffff"]);
+    document.documentElement.style.setProperty("--primary", c);
   }
 }
 
-// -------- Redirect URI (Spotify 2025 rules) --------
-function canonicalDirHref() {
-  const path = location.pathname;
-  const looksLikeFile = /\.[^/]+$/.test(path);
-  const dir = path.endsWith("/") || looksLikeFile ? path : path + "/";
-  return location.origin + dir;
-}
+// -------- Config / Redirect URI (Spotify policy compliant) --------
 function computeRedirectUri() {
-  const url = canonicalDirHref();
-  const host = location.hostname;
-  if (location.protocol === "https:" || host === "127.0.0.1" || host === "::1") return url;
-  if (host === "localhost" || host === "0.0.0.0") return url.replace(location.hostname, "127.0.0.1");
-  return url;
+  const u = new URL("./", window.location.href); // current directory with trailing slash
+  const isHttps = u.protocol === "https:";
+  const host = u.hostname;
+
+  const isLoopback = host === "127.0.0.1" || host === "::1";
+
+  if (isHttps || isLoopback) return u.toString();
+
+  if (host === "localhost" || host === "0.0.0.0") {
+    u.hostname = "127.0.0.1";
+    return u.toString();
+  }
+  return u.toString();
 }
+
 const REDIRECT_URI = computeRedirectUri();
-const SCOPES = ["streaming","user-read-email","user-read-private","user-read-playback-state","user-modify-playback-state"].join(" ");
+const SCOPES = [
+  "streaming",
+  "user-read-email",
+  "user-read-private",
+  "user-read-playback-state",
+  "user-modify-playback-state",
+].join(" ");
+
+function status(msg) {
+  console.log("[status]", msg);
+  statusEl.textContent = msg;
+}
+
+if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
+  status("Set your Spotify Client ID in config.js (copy config.example.js).");
+} else {
+  const url = new URL(REDIRECT_URI);
+  const isHttp = url.protocol === "http:";
+  const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "::1";
+  if (isHttp && !isLoopback) {
+    status("Warning: Spotify requires HTTPS for non-loopback redirect URIs. Use 127.0.0.1 or enable HTTPS.");
+  }
+}
 
 // -------- Auth (PKCE) --------
 const LS_KEY = "sp_auth";
 const VERIFIER_KEY = "sp_verifier";
-const REDIRECT_USED_KEY = "redirect_uri_used";
-const SPOTIFY_CLIENT_ID = window.SPOTIFY_CLIENT_ID || "";
 
 function randomString(length = 64) {
   const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-  let s = ""; const arr = new Uint8Array(length); crypto.getRandomValues(arr);
+  let s = "";
+  const arr = new Uint8Array(length);
+  crypto.getRandomValues(arr);
   for (let i = 0; i < length; i++) s += possible[arr[i] % possible.length];
   return s;
 }
 async function sha256(buffer) {
   const data = new TextEncoder().encode(buffer);
   const hash = await crypto.subtle.digest("SHA-256", data);
-  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
+
 function saveTokens(tokens) {
   const now = Math.floor(Date.now() / 1000);
-  const data = { ...tokens, expires_at: now + (tokens.expires_in || 3600) - 30 };
-  try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch {}
+  const data = {
+    ...tokens,
+    expires_at: now + (tokens.expires_in || 3600) - 30,
+  };
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
   return data;
 }
-function getTokens() { try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
+function getTokens() {
+  const raw = localStorage.getItem(LS_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
 function clearTokens() {
-  try { localStorage.removeItem(LS_KEY); } catch {}
-  try { sessionStorage.removeItem(VERIFIER_KEY); } catch {}
-  try { sessionStorage.removeItem(REDIRECT_USED_KEY); } catch {}
+  localStorage.removeItem(LS_KEY);
+  sessionStorage.removeItem(VERIFIER_KEY);
 }
 
 async function ensureAccessToken() {
@@ -257,45 +366,51 @@ async function ensureAccessToken() {
     params.set("client_id", SPOTIFY_CLIENT_ID);
     params.set("grant_type", "refresh_token");
     params.set("refresh_token", tok.refresh_token);
-    const res = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
+
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
       clearTokens();
-      throw new Error(`Failed to refresh token: ${text || res.status}`);
+      throw new Error("Failed to refresh token");
     }
     const data = await res.json();
     tok = saveTokens({ ...tok, ...data, refresh_token: data.refresh_token || tok.refresh_token });
     return tok.access_token;
   }
 
-  // Authorization code present?
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const storedState = sessionStorage.getItem("pkce_state");
   if (code) {
-    if (storedState && state !== storedState) throw new Error("State mismatch; aborting auth.");
+    if (storedState && state !== storedState) {
+      throw new Error("State mismatch; aborting auth.");
+    }
     const verifier = sessionStorage.getItem(VERIFIER_KEY);
-    if (!verifier) throw new Error("Missing PKCE verifier (sessionStorage).");
-
-    const usedRedirect = sessionStorage.getItem(REDIRECT_USED_KEY) || REDIRECT_URI;
+    if (!verifier) throw new Error("Missing PKCE verifier");
 
     const params = new URLSearchParams();
     params.set("client_id", SPOTIFY_CLIENT_ID);
     params.set("grant_type", "authorization_code");
     params.set("code", code);
-    params.set("redirect_uri", usedRedirect);
+    params.set("redirect_uri", REDIRECT_URI);
     params.set("code_verifier", verifier);
 
-    const res = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
-    const bodyText = await res.text().catch(() => "");
-    if (!res.ok) throw new Error(`Token exchange failed: ${bodyText || res.status}`);
-    const data = JSON.parse(bodyText);
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    if (!res.ok) {
+      throw new Error("Token exchange failed");
+    }
+    const data = await res.json();
     saveTokens(data);
 
-    // Clean URL back to canonical directory
-    const clean = canonicalDirHref();
-    window.history.replaceState({}, document.title, clean);
+    window.history.replaceState({}, document.title, new URL("./", window.location.href).toString());
     return data.access_token;
   }
 
@@ -303,142 +418,226 @@ async function ensureAccessToken() {
 }
 
 async function login() {
-  console.log("[login] click");
-  if (!SPOTIFY_CLIENT_ID) {
-    status("Missing Spotify Client ID in config.js (window.SPOTIFY_CLIENT_ID).");
-    alert("Missing Spotify Client ID. Edit config.js to set window.SPOTIFY_CLIENT_ID.");
-    return;
-  }
-  try {
-    const verifier = randomString(96);
-    const challenge = await sha256(verifier);
-    const state = randomString(16);
-    sessionStorage.setItem(VERIFIER_KEY, verifier);
-    sessionStorage.setItem("pkce_state", state);
-    sessionStorage.setItem(REDIRECT_USED_KEY, REDIRECT_URI); // record exact redirect used
+  const verifier = randomString(96);
+  const challenge = await sha256(verifier);
+  const state = randomString(16);
+  sessionStorage.setItem(VERIFIER_KEY, verifier);
+  sessionStorage.setItem("pkce_state", state);
 
-    const params = new URLSearchParams();
-    params.set("client_id", SPOTIFY_CLIENT_ID);
-    params.set("response_type", "code");
-    params.set("redirect_uri", REDIRECT_URI);
-    params.set("code_challenge_method", "S256");
-    params.set("code_challenge", challenge);
-    params.set("state", state);
-    params.set("scope", SCOPES);
+  const params = new URLSearchParams();
+  params.set("client_id", SPOTIFY_CLIENT_ID);
+  params.set("response_type", "code");
+  params.set("redirect_uri", REDIRECT_URI);
+  params.set("code_challenge_method", "S256");
+  params.set("code_challenge", challenge);
+  params.set("state", state);
+  params.set("scope", SCOPES);
 
-    const url = `https://accounts.spotify.com/authorize?${params.toString()}`;
-    console.log("[login] redirecting to", url);
-    window.location.assign(url);
-  } catch (e) {
-    console.error(e);
-    status("Failed to start login. See console for details.");
-    alert("Failed to start login. See console for details.");
-  }
+  window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
 }
-function logout() { clearTokens(); location.reload(); }
-loginBtn?.addEventListener("click", login);
-logoutBtn?.addEventListener("click", logout);
 
-// -------- Spotify Web API helpers --------
+function logout() {
+  clearTokens();
+  location.reload();
+}
+
+// Attach auth button handlers immediately so login works before SDK/token.
+loginBtn.addEventListener("click", login);
+logoutBtn.addEventListener("click", logout);
+
+// -------- Spotify APIs --------
 async function api(path, init = {}) {
   const token = await ensureAccessToken();
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`https://api.spotify.com/v1${path}`, { ...init, headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers || {}) } });
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
+    ...init,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
+  });
   if (res.status === 204) return null;
-  if (!res.ok) { const body = await res.text().catch(() => ""); throw new Error(`API ${res.status}: ${body || res.statusText}`); }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${body || res.statusText}`);
+  }
   return res.json();
 }
+
 async function getMe() { return api("/me"); }
-async function transferPlayback(device_id, play = false) { return api(`/me/player`, { method: "PUT", body: JSON.stringify({ device_ids: [device_id], play }) }); }
-async function startResumePlayback(body = undefined) { return api(`/me/player/play`, { method: "PUT", body: body ? JSON.stringify(body) : null }); }
+async function transferPlayback(device_id, play = false) {
+  return api(`/me/player`, { method: "PUT", body: JSON.stringify({ device_ids: [device_id], play }) });
+}
+async function startResumePlayback(body = undefined) {
+  return api(`/me/player/play`, { method: "PUT", body: body ? JSON.stringify(body) : null });
+}
 async function pausePlayback() { return api(`/me/player/pause`, { method: "PUT" }); }
 async function getAudioFeatures(trackId) { return api(`/audio-features/${trackId}`); }
-async function getAudioAnalysis(trackId) { return api(`/audio-analysis/${trackId}`); }
 
 // -------- Player SDK --------
 let player;
+let deviceId = null;
 let isPlaying = false;
 let currentState = null;
-let currentTrack = null;
-let analysis = null; // { beats, bars, sections }
 let sdkReadyResolve;
 const spotifySDKReady = new Promise((res) => (sdkReadyResolve = res));
 window.onSpotifyWebPlaybackSDKReady = () => sdkReadyResolve();
 
-function msToTime(ms) { if (!ms || ms < 0) ms = 0; const s = Math.floor(ms / 1000); const m = Math.floor(s / 60); const ss = String(s % 60).padStart(2, "0"); return `${m}:${ss}`; }
+function msToTime(ms) {
+  if (!ms || ms < 0) ms = 0;
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return `${m}:${ss}`;
+}
 
-// -------- App init --------
 async function init() {
   try {
     const token = await ensureAccessToken();
     updateAuthUI(!!token);
 
-    viz.start();
-    initSettingsUI();
+    if (!token) {
+      status("Please log in with Spotify.");
+      viz.start();
+      initSettingsUI();
+      return;
+    }
 
-    if (!token) { status("Please log in with Spotify."); return; }
-
-    const me = await getMe().catch(() => null);
+    // Show user info
+    const me = await getMe().catch((e) => {
+      console.warn(e);
+      return null;
+    });
     if (me) {
       userSection.hidden = false;
       userName.textContent = me.display_name || me.id;
       userProduct.textContent = (me.product || "").toUpperCase();
       userAvatar.src = me.images?.[0]?.url || "https://avatars.githubusercontent.com/u/9919?s=32&v=4";
       userAvatar.alt = me.display_name || me.id;
-      if (me.product !== "premium") status("Note: In-browser playback requires Spotify Premium.");
+      if (me.product !== "premium") {
+        status("Note: In-browser playback requires Spotify Premium. You can still log in and see the visualizer adapt to album covers if playback happens on another device.");
+      }
     }
 
     await spotifySDKReady;
-    player = new Spotify.Player({ name: "Ultra Visualizer", getOAuthToken: async (cb) => cb(await ensureAccessToken()), volume: 0.5 });
+
+    player = new Spotify.Player({
+      name: "Album Color Visualizer",
+      getOAuthToken: async (cb) => {
+        const t = await ensureAccessToken();
+        cb(t);
+      },
+      volume: 0.5,
+    });
 
     player.addListener("ready", async ({ device_id }) => {
-      status(`Player ready. Device ${device_id}.`);
+      deviceId = device_id;
+      status(`Player ready on device ${device_id}. Transferring playback...`);
       playerSection.hidden = false;
-      try { await transferPlayback(device_id, false); status(`Playback transferred. Press Play to start.`); }
-      catch { status(`Playback transfer failed. Open Spotify on a device, then press Play here.`); }
+
+      try {
+        await transferPlayback(device_id, false);
+        status(`Playback transferred. Press Play to start or control from any Spotify app.`);
+      } catch (e) {
+        console.warn(e);
+        status(`Playback transfer failed. Open Spotify on any device, then press Play here.`);
+      }
     });
-    player.addListener("not_ready", ({ device_id }) => status(`Device ${device_id} went offline.`));
+
+    player.addListener("not_ready", ({ device_id }) => {
+      status(`Device ${device_id} went offline.`);
+    });
+
     player.addListener("initialization_error", ({ message }) => console.error(message));
     player.addListener("authentication_error", ({ message }) => console.error(message));
-    player.addListener("account_error", ({ message }) => status("Account error: " + message));
+    player.addListener("account_error", ({ message }) => {
+      status("Account error: " + message);
+    });
+
     player.addListener("player_state_changed", onPlayerState);
 
     const connected = await player.connect();
-    if (!connected) { status("Failed to connect Spotify player."); return; }
+    if (!connected) {
+      status("Failed to connect Spotify player.");
+      viz.start();
+      initSettingsUI();
+      return;
+    }
 
     bindPlayerControls();
+
+    viz.start();
+    initSettingsUI();
   } catch (e) {
     console.error(e);
     status(e.message || "Error initializing app");
+    viz.start();
+    initSettingsUI();
   }
 }
 
 function bindPlayerControls() {
-  playBtn.addEventListener("click", async () => { try { await player.togglePlay(); } catch { if (isPlaying) await pausePlayback(); else await startResumePlayback(); } });
+  playBtn.addEventListener("click", async () => {
+    try {
+      await player.togglePlay();
+    } catch {
+      if (isPlaying) await pausePlayback();
+      else await startResumePlayback();
+    }
+  });
+
   prevBtn.addEventListener("click", () => player.previousTrack());
   nextBtn.addEventListener("click", () => player.nextTrack());
-  seek.addEventListener("input", () => { const pos = Number(seek.value) / 1000; if (currentState?.duration) elapsed.textContent = msToTime(currentState.duration * pos); });
+
+  seek.addEventListener("input", () => {
+    const pos = Number(seek.value) / 1000;
+    if (currentState?.duration) {
+      elapsed.textContent = msToTime(currentState.duration * pos);
+    }
+  });
   seek.addEventListener("change", async () => {
     if (!currentState?.duration) return;
     const posMs = Math.floor(currentState.duration * (Number(seek.value) / 1000));
-    try { await player.seek(posMs); } catch (e) { console.warn(e); }
+    try {
+      await player.seek(posMs);
+    } catch (e) {
+      console.warn(e);
+    }
   });
-  volumeSlider.addEventListener("input", async () => { const vol = Number(volumeSlider.value) / 100; try { await player.setVolume(vol); } catch (e) { console.warn(e); } });
+
+  volumeSlider.addEventListener("input", async () => {
+    const vol = Number(volumeSlider.value) / 100;
+    try {
+      await player.setVolume(vol);
+    } catch (e) {
+      console.warn(e);
+    }
+  });
+}
+
+function updateAuthUI(isAuthed) {
+  loginBtn.hidden = !!isAuthed;
+  logoutBtn.hidden = !isAuthed;
 }
 
 async function onPlayerState(state) {
   if (!state) return;
-  const track = state.track_window?.current_track || null;
-  const firstTrackChange = !currentTrack || track?.id !== currentTrack?.id;
-  currentState = { position: state.position, duration: state.duration, paused: state.paused, track };
+  currentState = {
+    position: state.position,
+    duration: state.duration,
+    paused: state.paused,
+    track: state.track_window?.current_track || null,
+  };
   isPlaying = !state.paused;
+
   playBtn.textContent = isPlaying ? "⏸" : "▶️";
   elapsed.textContent = msToTime(state.position);
   duration.textContent = msToTime(state.duration);
   seek.value = state.duration ? Math.floor((state.position / state.duration) * 1000) : 0;
 
+  const track = currentState.track;
   if (track) {
-    currentTrack = track;
     trackName.textContent = track.name || "—";
     trackArtist.textContent = (track.artists || []).map((a) => a.name).join(", ") || "—";
     trackAlbum.textContent = track.album?.name || "—";
@@ -446,76 +645,50 @@ async function onPlayerState(state) {
     const imgUrl = img?.url || "";
     if (imgUrl) {
       albumArt.src = imgUrl;
-      updatePaletteFromImage(imgUrl).catch(console.warn);
+      if (!settings.lockPalette && settings.colorMode === "album") {
+        updatePaletteFromImage(imgUrl).catch(console.warn);
+      }
     }
 
     try {
-      const id = track.id || (track.uri || "").split(":").pop();
-      if (id && firstTrackChange) {
-        const [feat, ana] = await Promise.allSettled([getAudioFeatures(id), getAudioAnalysis(id)]);
-        if (feat.status === "fulfilled") {
-          const f = feat.value;
-          if (f?.tempo) viz.setTempo(f.tempo);
-          if (typeof f?.energy === "number") viz.setEnergy(f.energy);
-        }
-        if (ana.status === "fulfilled") {
-          analysis = ana.value || null;
-          _resetAnalysisIndices();
-          if (settings.keyframesDemo) viz.enableKeyframeDemo(currentTrack?.duration_ms ? currentTrack.duration_ms / 1000 : 180);
-        }
+      const id = (track.uri || "").split(":").pop();
+      if (id) {
+        const feat = await getAudioFeatures(id);
+        if (feat?.tempo) viz.setTempo(feat.tempo);
+        if (typeof feat?.energy === "number") viz.setEnergy(feat.energy);
       }
     } catch (e) {
-      console.warn("Features/Analysis failed", e);
+      console.warn("Audio features failed", e);
     }
   }
-
-  _updateAnalysisMapping();
 }
 
-function _resetAnalysisIndices() { lastBeatIdx = lastBarIdx = lastSectionIdx = -1; }
-let lastBeatIdx = -1, lastBarIdx = -1, lastSectionIdx = -1;
-
-function _findIndexByTime(arr, t) {
-  if (!arr || !arr.length) return -1;
-  for (let i = 0; i < arr.length; i++) {
-    const a = arr[i];
-    if (t < a.start + a.duration) return i;
-  }
-  return arr.length - 1;
-}
-
-function _updateAnalysisMapping() {
-  if (!analysis || !settings.mapAnalysis || !currentState) return;
-  const posSec = (currentState.position || 0) / 1000;
-  viz.setPlayPosition(posSec);
-
-  const beats = analysis.beats, bars = analysis.bars, sections = analysis.sections;
-  const bi = _findIndexByTime(beats, posSec), bai = _findIndexByTime(bars, posSec), si = _findIndexByTime(sections, posSec);
-
-  if (bi !== lastBeatIdx || bai !== lastBarIdx || si !== lastSectionIdx) {
-    lastBeatIdx = bi; lastBarIdx = bai; lastSectionIdx = si;
-    viz.updateAnalysis({ beatIndex: bi, barIndex: bai, sectionIndex: si, time: posSec });
-  }
-}
-
-// Palette extraction and album texture
+// Palette extraction
 async function updatePaletteFromImage(url) {
   const img = await loadImage(url);
-  viz.setAlbumImage(img);
-  const colors = extractPalette(img, 6);
-  if (!settings.lockPalette && settings.theme === "album") {
-    viz.setTheme("album", colors);
+  const colors = extractPalette(img, 5);
+  if (settings.colorMode === "album" && !settings.lockPalette) {
+    viz.setPalette(colors);
     document.documentElement.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
   }
 }
-function loadImage(src) { return new Promise((resolve, reject) => { const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => resolve(img); img.onerror = reject; img.src = src; }); }
-function extractPalette(image, maxColors = 6) {
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+function extractPalette(image, maxColors = 5) {
   const canvas = document.createElement("canvas");
   const w = (canvas.width = Math.min(240, image.naturalWidth || image.width));
   const h = (canvas.height = Math.min(240, image.naturalHeight || image.height));
   const ctx = canvas.getContext("2d");
   ctx.drawImage(image, 0, 0, w, h);
   const { data } = ctx.getImageData(0, 0, w, h);
+
   const buckets = new Map();
   const step = 4 * 4;
   for (let i = 0; i < data.length; i += step) {
@@ -527,27 +700,34 @@ function extractPalette(image, maxColors = 6) {
     const key = (rq << 16) | (gq << 8) | bq;
     buckets.set(key, (buckets.get(key) || 0) + 1);
   }
-  const top = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxColors + 3);
+
+  const top = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxColors + 2);
   const colors = top.map(([key]) => {
-    const r = (key >> 16) & 0xFF, g = (key >> 8) & 0xFF, b = key & 0xFF;
+    const r = (key >> 16) & 0xFF;
+    const g = (key >> 8) & 0xFF;
+    const b = key & 0xFF;
     return "#" + [r, g, b].map(n => n.toString(16).padStart(2, "0")).join("");
   });
-  const withLuma = colors.map(c => ({ c, l: hexLuma(c) })).sort((a, b) => a.l - b.l);
-  const ordered = [withLuma[0]?.c, withLuma[Math.floor(withLuma.length * 0.66)]?.c || withLuma.at(-1)?.c, withLuma.at(-1)?.c, ...withLuma.slice(1, -1).map(x => x.c)].filter(Boolean);
-  return [...new Set(ordered)].slice(0, maxColors);
+
+  const withLuma = colors.map(c => ({ c, l: hexLuma(c) }));
+  withLuma.sort((a, b) => a.l - b.l);
+  const ordered = [
+    withLuma[0]?.c,
+    withLuma[Math.floor(withLuma.length * 0.66)]?.c || withLuma.at(-1)?.c,
+    withLuma.at(-1)?.c,
+    ...withLuma.slice(1, -1).map(x => x.c),
+  ].filter(Boolean);
+
+  const uniq = [...new Set(ordered)];
+  return uniq.slice(0, maxColors);
 }
-function hexLuma(hex) { let c = hex.replace("#", ""); if (c.length === 3) c = c.split("").map(ch => ch + ch).join(""); const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
-
-// Settings drawer
-settingsBtn?.addEventListener("click", openDrawer);
-drawerClose?.addEventListener("click", closeDrawer);
-overlay?.addEventListener("click", closeDrawer);
-
-// UI auth hint
-if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") status("Set your Spotify Client ID in config.js (window.SPOTIFY_CLIENT_ID).");
-else {
-  const u = new URL(REDIRECT_URI);
-  if (u.protocol === "http:" && !(u.hostname === "127.0.0.1" || u.hostname === "::1")) status("Warning: Spotify requires HTTPS for non-loopback redirect URIs.");
+function hexLuma(hex) {
+  let c = hex.replace("#", "");
+  if (c.length === 3) c = c.split("").map(ch => ch + ch).join("");
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 // Kick off

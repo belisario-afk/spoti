@@ -1,61 +1,43 @@
-# Ultra Spotify Visualizer
+# Spotify Visualizer Website
 
-A single-page app that:
-- Logs in with Spotify (PKCE).
-- Plays via the Web Playback SDK (Premium required).
-- Renders advanced, themeable visualizers: Rings, Particle Field, Orbit Lines, Tunnel, and Floating Album Covers.
-- One‑click visualizer presets and theme presets.
-- iPhone layout/performance tuning, adaptive quality, and persistent settings.
+A single-page website that:
+- Lets users log in with Spotify (PKCE auth).
+- Plays music in the browser via Spotify Web Playback SDK.
+- Draws a music visualizer whose colors adapt to the current album cover and whose motion follows the track's tempo and energy.
+- New: Slide-out Settings with live controls (rings, bars, rotation, pulse, glow, trail, bloom, color modes), iPhone layout/perf tweaks, and presets.
 
-Live on GitHub Pages (example): https://belisario-afk.github.io/spoti/
+## Settings panel
 
-## Features
+Open the Settings (gear) to tweak:
+- Color
+  - Mode: Album (dynamic), Spotify Brand, Mono (custom color)
+  - Lock album colors (prevent palette changes per track)
+  - Custom color picker (for Mono)
+- Motion
+  - Rings (1–5), Bars per ring (16–96)
+  - Rotation speed multiplier
+  - Pulse intensity
+- Look
+  - Background glow opacity
+  - Trail fade (adds smooth motion trails)
+  - Bloom strength
+- Presets: Chill, Energetic, Minimal
 
-Visualizer modes
-- Rings: multi-ring bar sculpture with beat bloom.
-- Particle Field: aurora-like particles with additive glow and center attractor.
-- Orbit Lines: orbiting nodes with reactive link mesh.
-- Tunnel: spiral tunnel beams with BPM-driven twist.
-- Floating Covers: parallax cloud of album covers with soft glow.
+Settings are stored in localStorage and persist across sessions.
 
-Themes
-- Album Adaptive (from current cover), Neon, Midnight, Sunset, Ocean, Vaporwave, Cyberpunk, Candy, Noir, and Mono (custom color).
+## iPhone support
 
-Presets
-- Classic Rings, Aurora Particles, Cyber Neon Lines, Sunset Tunnel, Vaporwave Float, Minimal Noir.
+- Uses viewport-fit=cover and 100dvh so the canvas fills under the notch/home bar.
+- Safe-area insets applied to layout.
+- Auto-tunes defaults (fewer rings/bars, DPR cap) on iPhone for smoother performance.
 
-Polish
-- Slide-out settings drawer (gear icon), smooth transitions.
-- Local persistence via localStorage.
-- iPhone-friendly: safe-area insets, 100dvh canvas, DPR cap.
-- Adaptive performance: automatic DPR up/down based on FPS.
+## Setup and Redirect URIs (2025 policy)
 
-## Setup
-
-1) Create a Spotify app: https://developer.spotify.com/dashboard
-2) Add Redirect URIs (2025 rules):
-   - Dev: `http://127.0.0.1/` (no port, supports dynamic ports)
-   - Prod (GitHub Pages): `https://belisario-afk.github.io/spoti/`
-3) Copy `config.example.js` to `config.js` and set your Client ID.
+- Dev: register `http://127.0.0.1/` (no port) and open `http://127.0.0.1:<port>/`
+- Prod (GitHub Pages, this repo): add `https://belisario-afk.github.io/spoti/`
+- `localhost` is not allowed; HTTPS is required for non-loopback.
 
 ## Notes
 
-- Premium is required for in-browser playback.
-- Due to DRM, visuals use metadata (tempo/energy) + album colors, not raw audio.
-- If images block cross-origin, palette may fall back; visuals still run.
-
-## Troubleshooting
-
-- Redirect mismatch: ensure exact match to your site URL (origin + path + trailing slash).
-- Login button does nothing: hard refresh; clear `sp_auth` and `viz_settings_v3`.
-- Playback blocked on iOS: tap Play (user gesture required).
-- Performance: lower Complexity in Settings or let adaptive quality adjust.
-
-Place your door texture image here.
-
-Preferred file names (first found is used automatically):
-- A closed double door.png
-- door.png
-- door.jpg
-
-You can also put “A closed double door.png” in the site root next to index.html.
+- Spotify Premium is required for playback via the Web Playback SDK.
+- Visualizer uses metadata (tempo/energy) + album colors (no raw audio taps).
