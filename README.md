@@ -50,3 +50,12 @@ Polish
 - Login button does nothing: hard refresh; clear `sp_auth` and `viz_settings_v3`.
 - Playback blocked on iOS: tap Play (user gesture required).
 - Performance: lower Complexity in Settings or let adaptive quality adjust.
+
+Place your door texture image here.
+
+Preferred file names (first found is used automatically):
+- A closed double door.png
+- door.png
+- door.jpg
+
+You can also put “A closed double door.png” in the site root next to index.html.
