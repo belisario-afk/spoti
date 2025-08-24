@@ -1,124 +1,427 @@
-// Ultra visualizer engine with multiple scenes, crossfades, themes, particles, flow fields, ribbons, waves, and floating album covers.
-// Driven by metadata (tempo/energy) + album palettes (no raw audio taps due to DRM).
-// API:
-//  - setPalette(colors), setTempo(bpm), setEnergy(0..1)
-//  - configure({...}), setDprCap(x)
-//  - setScene(name), getScenes()
-//  - setAlbumImages(urls[])  // optional, used by "Floating Covers" scene
-//  - start(), stop()
+// Advanced visualizer with multiple modes, themes, and adaptive performance.
+// Note: Driven by tempo/energy metadata (no raw audio tap from Spotify).
+
+// Theme palettes
+export const THEMES = {
+  album: null, // set from album art
+  neon: ["#00ffd5", "#a259ff", "#ffec19", "#ff3366"],
+  midnight: ["#0f1020", "#2b2d42", "#8d99ae", "#edf2f4"],
+  sunset: ["#ff7e5f", "#feb47b", "#ffd166", "#ef476f"],
+  ocean: ["#0a9396", "#94d2bd", "#e9d8a6", "#ee9b00"],
+  vaporwave: ["#ff71ce", "#01cdfe", "#05ffa1", "#b967ff"],
+  cyber: ["#00e1ff", "#ff00e1", "#00ff9f", "#ffe600"],
+  candy: ["#ff9aa2", "#ffb7b2", "#ffdac1", "#e2f0cb"],
+  noir: ["#0f0f12", "#2b2b30", "#c9c9d1", "#ffffff"],
+  mono: null, // set by user custom color
+};
+
+// Utility
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+class SceneBase {
+  init(viz) { this.viz = viz; }
+  resize() {}
+  setOption() {}
+  setAlbumImage() {}
+  update() {}
+  render() {}
+}
+
+class RingsScene extends SceneBase {
+  constructor() {
+    super();
+    this.rings = 3;
+    this.bars = 60;
+  }
+  setOption(k, v) {
+    if (k === "rings") this.rings = Math.max(1, Math.floor(v));
+    if (k === "bars") this.bars = Math.max(8, Math.floor(v));
+  }
+  render(ctx, w, h, d) {
+    const { palette, rotationMul, pulseMul, bloomStrength } = this.viz;
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(d.rotation * 0.2);
+
+    for (let r = 0; r < this.rings; r++) {
+      const radius = 80 + r * 60 + d.pulse * 8 * (r + 1) * pulseMul;
+      for (let i = 0; i < this.bars; i++) {
+        const a = (i / this.bars) * Math.PI * 2 + d.rotation * (0.1 + r * 0.05) * rotationMul;
+        const x = Math.cos(a) * radius;
+        const y = Math.sin(a) * radius;
+
+        const col = palette[(i + r) % palette.length] || "#ffffff";
+        const len = 12 + Math.sin(a * 2 + d.time * (1.5 + r * 0.4)) * 8 + d.pulse * 22 * (0.6 + d.energy);
+        const wBar = 3 + (r === 0 ? 1 : 0);
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(a);
+        ctx.fillStyle = rgba(col, 0.9);
+        ctx.fillRect(-wBar / 2, -len / 2, wBar, len);
+        ctx.restore();
+      }
+    }
+
+    // Center bloom
+    const bloom = ctx.createRadialGradient(0, 0, 4, 0, 0, 70 + d.pulse * 30);
+    bloom.addColorStop(0, rgba(palette[1] || "#ffffff", bloomStrength));
+    bloom.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = bloom;
+    ctx.beginPath();
+    ctx.arc(0, 0, 120 + d.pulse * 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+class ParticlesScene extends SceneBase {
+  constructor() {
+    super();
+    this.n = 300;
+    this.size = 1.4;
+    this.particles = [];
+    this.w = 0; this.h = 0;
+  }
+  setOption(k, v) {
+    if (k === "count") this.n = Math.max(10, Math.floor(v));
+    if (k === "size") this.size = v;
+    if (k === "complexity") this.n = Math.floor(200 * v);
+  }
+  resize(w, h) { this.w = w; this.h = h; this._ensure(); }
+  _ensure() {
+    while (this.particles.length < this.n) {
+      this.particles.push({
+        x: rand(-this.w, this.w * 2), y: rand(-this.h, this.h * 2),
+        vx: rand(-0.2, 0.2), vy: rand(-0.2, 0.2),
+        hue: Math.random(),
+        life: rand(0, 1)
+      });
+    }
+    if (this.particles.length > this.n) this.particles.length = this.n;
+  }
+  update(dt, d) {
+    this._ensure();
+    const cx = this.w / 2, cy = this.h / 2;
+    const attract = 10 * (0.5 + d.energy);
+    for (const p of this.particles) {
+      const dx = cx - p.x, dy = cy - p.y;
+      const dist = Math.hypot(dx, dy) + 1;
+      const ax = (dx / dist) * attract * dt;
+      const ay = (dy / dist) * attract * dt;
+      p.vx += ax + (Math.sin((p.y + d.time * 60) * 0.002) * 0.05);
+      p.vy += ay + (Math.cos((p.x - d.time * 60) * 0.002) * 0.05);
+      const speed = 40 + 200 * d.energy + d.pulse * 160;
+      p.x += p.vx * speed * dt;
+      p.y += p.vy * speed * dt;
+      p.life += dt * (0.2 + d.energy * 0.8);
+      if (p.x < -100 || p.x > this.w + 100 || p.y < -100 || p.y > this.h + 100) {
+        p.x = rand(0, this.w); p.y = rand(0, this.h);
+        p.vx = rand(-0.2, 0.2); p.vy = rand(-0.2, 0.2);
+        p.life = 0;
+      }
+    }
+  }
+  render(ctx, w, h, d) {
+    const { palette } = this.viz;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const p of this.particles) {
+      const t = (Math.sin(p.life * Math.PI) * 0.5 + 0.5);
+      const col = palette[Math.floor(p.hue * palette.length) % palette.length] || "#ffffff";
+      ctx.fillStyle = rgba(col, 0.12 + t * 0.6);
+      const r = this.size + t * 2.5 + d.pulse * 0.6;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+}
+
+class OrbitLinesScene extends SceneBase {
+  constructor() {
+    super();
+    this.nodes = 60;
+    this.linkDist = 160;
+    this.points = [];
+    this.w = 0; this.h = 0;
+  }
+  setOption(k, v) {
+    if (k === "nodes") this.nodes = Math.max(4, Math.floor(v));
+    if (k === "link") this.linkDist = v;
+    if (k === "complexity") this.nodes = Math.floor(40 * v + 20);
+  }
+  resize(w, h) { this.w = w; this.h = h; this._regen(); }
+  _regen() {
+    const cx = this.w / 2, cy = this.h / 2;
+    this.points = Array.from({ length: this.nodes }, (_, i) => {
+      const r = rand(60, Math.min(this.w, this.h) * 0.45);
+      const a = rand(0, Math.PI * 2);
+      return { r, a, speed: rand(0.2, 1.2), z: rand(0.2, 1.2), x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+    });
+  }
+  update(dt, d) {
+    if (this.points.length !== this.nodes) this._regen();
+    const cx = this.w / 2, cy = this.h / 2;
+    for (const p of this.points) {
+      p.a += dt * p.speed * (0.3 + d.energy) * (1 + d.pulse * 0.2);
+      const twist = 0.2 + d.energy * 0.6;
+      const rr = p.r * (1 + Math.sin(d.time * 0.5 + p.r * 0.01) * 0.05 * twist);
+      p.x = cx + Math.cos(p.a) * rr;
+      p.y = cy + Math.sin(p.a) * rr;
+    }
+  }
+  render(ctx, w, h, d) {
+    const { palette } = this.viz;
+    ctx.save();
+    ctx.strokeStyle = rgba(palette[0] || "#fff", 0.4);
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < this.points.length; i++) {
+      const a = this.points[i];
+      for (let j = i + 1; j < this.points.length; j++) {
+        const b = this.points[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < this.linkDist) {
+          const t = 1 - dist / this.linkDist;
+          ctx.strokeStyle = rgba(palette[(i + j) % palette.length] || "#fff", 0.15 + t * 0.45);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+    // orbit dots
+    for (let i = 0; i < this.points.length; i++) {
+      const p = this.points[i];
+      ctx.fillStyle = rgba(palette[i % palette.length] || "#fff", 0.9);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.4 + d.pulse * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+class TunnelScene extends SceneBase {
+  constructor() {
+    super();
+    this.density = 40;
+    this.twist = 0.6;
+  }
+  setOption(k, v) {
+    if (k === "density") this.density = Math.floor(v);
+    if (k === "twist") this.twist = v;
+    if (k === "complexity") this.density = Math.floor(30 * v + 20);
+  }
+  render(ctx, w, h, d) {
+    const { palette } = this.viz;
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    const maxR = Math.hypot(w, h) * 0.6;
+    for (let i = 0; i < this.density; i++) {
+      const t = i / this.density;
+      const r = maxR * t;
+      const a = d.rotation * (0.5 + this.twist) + t * Math.PI * 8;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      const col = palette[i % palette.length] || "#fff";
+      const alpha = 0.15 + (1 - t) * 0.6;
+      ctx.strokeStyle = rgba(col, alpha);
+      ctx.lineWidth = 2 + (1 - t) * 3;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x * 0.85, y * 0.85);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+class CoversScene extends SceneBase {
+  constructor() {
+    super();
+    this.n = 16;
+    this.maxSize = 160;
+    this.sprites = [];
+    this.tex = null; // Image
+    this.w = 0; this.h = 0;
+  }
+  setOption(k, v) {
+    if (k === "count") this.n = Math.max(1, Math.floor(v));
+    if (k === "size") this.maxSize = v;
+    if (k === "complexity") this.n = Math.floor(10 * v + 8);
+  }
+  setAlbumImage(img) {
+    this.tex = img || null;
+    // randomize rotations on new album
+    for (const s of this.sprites) s.rot = rand(-Math.PI, Math.PI);
+  }
+  resize(w, h) { this.w = w; this.h = h; this._ensure(); }
+  _ensure() {
+    while (this.sprites.length < this.n) {
+      this.sprites.push({
+        x: rand(0, this.w), y: rand(0, this.h), z: rand(0.2, 1), rot: rand(-Math.PI, Math.PI),
+        vx: rand(-0.3, 0.3), vy: rand(-0.3, 0.3), vr: rand(-0.3, 0.3),
+      });
+    }
+    if (this.sprites.length > this.n) this.sprites.length = this.n;
+  }
+  update(dt, d) {
+    this._ensure();
+    for (const s of this.sprites) {
+      s.x += s.vx * (60 + 200 * d.energy + d.pulse * 120) * dt;
+      s.y += s.vy * (60 + 200 * d.energy + d.pulse * 120) * dt;
+      s.rot += s.vr * dt * (0.2 + d.energy);
+      if (s.x < -200) s.x = this.w + 200;
+      if (s.x > this.w + 200) s.x = -200;
+      if (s.y < -200) s.y = this.h + 200;
+      if (s.y > this.h + 200) s.y = -200;
+      // subtle zoom pulsation
+      s.z = clamp(s.z + (Math.sin(d.time * 0.6 + s.rot) * 0.002), 0.2, 1.2);
+    }
+  }
+  render(ctx, w, h, d) {
+    const { palette } = this.viz;
+    ctx.save();
+    ctx.translate(0, 0);
+    for (const s of this.sprites) {
+      const size = (this.maxSize * (0.3 + s.z)) * (0.8 + d.pulse * 0.2);
+      const x = s.x, y = s.y;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(s.rot + d.rotation * 0.05);
+      ctx.globalAlpha = 0.7 + 0.3 * (s.z);
+      if (this.tex) {
+        ctx.drawImage(this.tex, -size / 2, -size / 2, size, size);
+        // glow border
+        ctx.strokeStyle = rgba(palette[1] || "#fff", 0.25);
+        ctx.lineWidth = clamp(size * 0.02, 1, 6);
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+      } else {
+        ctx.fillStyle = rgba(palette[0] || "#fff", 0.8);
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
 
 export class Visualizer {
   constructor(canvas, opts = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d", { alpha: true });
+
+    // Core state
     this.palette = opts.palette || ["#1db954", "#3ddc97", "#ffffff"];
     this.bg = this.palette[0] || "#0b0b10";
     this.tempo = 120;
     this.energy = 0.6;
+    this.rotation = 0;
+    this.lastTs = 0;
+    this.running = false;
 
-    // Globals
+    // Global settings
+    this.mode = opts.mode || "rings";
     this.rotationMul = opts.rotationMul ?? 1.0;
     this.pulseMul = opts.pulseMul ?? 1.0;
     this.glowOpacity = opts.glowOpacity ?? 0.25;
     this.trailAlpha = opts.trailAlpha ?? 0.06;
     this.bloomStrength = opts.bloomStrength ?? 0.22;
-    this.rings = opts.rings ?? 3;
-    this.barsPerRing = opts.barsPerRing ?? 48;
+    this.complexity = opts.complexity ?? 1.0;
+    this.themeName = opts.themeName || "album";
+    this.customMono = opts.customMono || "#1db954";
 
-    // DPR handling
-    this.dprCap = opts.dprCap ?? Math.max(1, window.devicePixelRatio || 1);
+    // Performance
+    this.maxDpr = Math.max(1, window.devicePixelRatio || 1);
+    this.dprCap = opts.dprCap ?? this.maxDpr;
+    this.adaptPerf = true;
+    this._fpsClock = 0;
+    this._frames = 0;
+
+    // Album texture for covers scene
+    this.albumImage = null;
 
     // Scenes
-    this.scenes = new Map();
-    this.current = null;
-    this.currentName = null;
-    this.prevCanvas = null; // for crossfade
-    this.prevAlpha = 0;
-    this.crossfadeDur = 650; // ms
-    this.switchAt = 0;
+    this.scenes = {
+      rings: new RingsScene(),
+      particles: new ParticlesScene(),
+      orbit: new OrbitLinesScene(),
+      tunnel: new TunnelScene(),
+      covers: new CoversScene(),
+    };
+    Object.values(this.scenes).forEach(s => s.init(this));
 
-    // Album images (for Floating Covers)
-    this.albumImages = [];
-    this.loadedImages = []; // Image objects
-
-    // Loop
-    this.running = false;
-    this.lastTs = 0;
-
-    // Resize
     this.handleResize = this.resize.bind(this);
     window.addEventListener("resize", this.handleResize, { passive: true });
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", this.handleResize, { passive: true });
     }
     this.resize();
+  }
 
-    // Register built-in scenes
-    this.registerDefaultScenes();
-    // Default scene
-    this.setScene("Radiant Rings");
+  setMode(mode) {
+    if (this.scenes[mode]) {
+      this.mode = mode;
+      this.resize(); // let scene recalc layout
+    }
+  }
+  setTheme(name, palette = null) {
+    this.themeName = name;
+    if (name === "album" && palette) {
+      this.setPalette(palette);
+    } else if (name === "mono") {
+      const c = this.customMono || "#1db954";
+      this.setPalette([c, c, "#ffffff"]);
+    } else {
+      const p = THEMES[name];
+      if (Array.isArray(p)) this.setPalette(p);
+    }
+  }
+  setCustomMono(hex) {
+    this.customMono = hex;
+    if (this.themeName === "mono") this.setTheme("mono");
   }
 
   setPalette(colors) {
     if (Array.isArray(colors) && colors.length) {
       this.palette = colors;
       this.bg = colors[0];
-      if (this.current?.onPalette) this.current.onPalette(this.palette);
     }
   }
   setTempo(bpm) { if (typeof bpm === "number" && bpm > 0) this.tempo = bpm; }
-  setEnergy(val) { if (typeof val === "number") this.energy = Math.min(1, Math.max(0, val)); }
+  setEnergy(val) { if (typeof val === "number") this.energy = clamp(val, 0, 1); }
+  setAlbumImage(img) {
+    this.albumImage = img || null;
+    if (this.scenes.covers) this.scenes.covers.setAlbumImage(this.albumImage);
+  }
 
   configure(partial) {
     Object.assign(this, partial);
-    if (this.current?.onConfig) this.current.onConfig(this);
-  }
-  setDprCap(x) {
-    this.dprCap = x;
-    this.resize();
-  }
-
-  async setAlbumImages(urls = []) {
-    // Load as HTMLImageElement with CORS
-    this.albumImages = urls.slice(0, 24);
-    this.loadedImages = await Promise.all(
-      this.albumImages.map(u => this.loadImage(u).catch(() => null))
-    ).then(arr => arr.filter(Boolean));
-    if (this.current?.onImages) this.current.onImages(this.loadedImages);
-  }
-
-  getScenes() {
-    return [...this.scenes.keys()];
-  }
-
-  setScene(name) {
-    const factory = this.scenes.get(name);
-    if (!factory) return;
-    // Prepare crossfade
-    if (!this.prevCanvas) {
-      this.prevCanvas = document.createElement("canvas");
+    // forward some options into scenes
+    if (partial.rings !== undefined) this.scenes.rings?.setOption("rings", partial.rings);
+    if (partial.barsPerRing !== undefined) this.scenes.rings?.setOption("bars", partial.barsPerRing);
+    if (partial.numParticles !== undefined) this.scenes.particles?.setOption("count", partial.numParticles);
+    if (partial.particleSize !== undefined) this.scenes.particles?.setOption("size", partial.particleSize);
+    if (partial.numNodes !== undefined) this.scenes.orbit?.setOption("nodes", partial.numNodes);
+    if (partial.linkDistance !== undefined) this.scenes.orbit?.setOption("link", partial.linkDistance);
+    if (partial.tunnelDensity !== undefined) this.scenes.tunnel?.setOption("density", partial.tunnelDensity);
+    if (partial.tunnelTwist !== undefined) this.scenes.tunnel?.setOption("twist", partial.tunnelTwist);
+    if (partial.numCovers !== undefined) this.scenes.covers?.setOption("count", partial.numCovers);
+    if (partial.coverMaxSize !== undefined) this.scenes.covers?.setOption("size", partial.coverMaxSize);
+    if (partial.complexity !== undefined) {
+      for (const s of Object.values(this.scenes)) s.setOption?.("complexity", partial.complexity);
     }
-    const w = this.canvas.width, h = this.canvas.height;
-    this.prevCanvas.width = w; this.prevCanvas.height = h;
-    this.prevCanvas.getContext("2d").drawImage(this.canvas, 0, 0);
-
-    // Dispose current
-    if (this.current?.dispose) this.current.dispose();
-
-    // Create new scene
-    this.current = factory();
-    this.currentName = name;
-    if (this.current.init) {
-      this.current.init(this.ctx, this.canvas.clientWidth, this.canvas.clientHeight, this.getCtx());
-    }
-    if (this.current.onPalette) this.current.onPalette(this.palette);
-    if (this.current.onImages && this.loadedImages.length) this.current.onImages(this.loadedImages);
-    if (this.current.onConfig) this.current.onConfig(this);
-
-    // Crossfade
-    this.switchAt = performance.now();
-    this.prevAlpha = 1;
   }
+
+  setDprCap(x) { this.dprCap = x; this.resize(); }
 
   start() {
     if (this.running) return;
@@ -131,15 +434,13 @@ export class Visualizer {
   resize() {
     const vw = window.visualViewport?.width || window.innerWidth;
     const vh = window.visualViewport?.height || window.innerHeight;
-    const dpr = Math.min(this.dprCap, Math.max(1, window.devicePixelRatio || 1));
-
+    const dpr = Math.min(this.dprCap, this.maxDpr);
     this.canvas.width = Math.floor(vw * dpr);
     this.canvas.height = Math.floor(vh * dpr);
     this.canvas.style.width = vw + "px";
     this.canvas.style.height = vh + "px";
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    if (this.current?.resize) this.current.resize(vw, vh, this.getCtx());
+    Object.values(this.scenes).forEach(s => s.resize(vw, vh));
   }
 
   loop(ts) {
@@ -148,21 +449,54 @@ export class Visualizer {
     const dt = (ts - this.lastTs) / 1000;
     this.lastTs = ts;
 
-    // Update scene
-    if (this.current?.update) this.current.update(dt, this.getCtx());
+    this.update(dt);
+    this.render();
 
-    // Render
-    this.render(ts);
+    // FPS-based adaptive DPR
+    if (this.adaptPerf) {
+      this._frames++; this._fpsClock += dt;
+      if (this._fpsClock >= 2) {
+        const fps = this._frames / this._fpsClock;
+        if (fps < 28 && this.dprCap > 1) {
+          this.dprCap = Math.max(1, this.dprCap - 0.25);
+          this.resize();
+        } else if (fps > 55 && this.dprCap < this.maxDpr) {
+          this.dprCap = Math.min(this.maxDpr, this.dprCap + 0.25);
+          this.resize();
+        }
+        this._frames = 0; this._fpsClock = 0;
+      }
+    }
 
     requestAnimationFrame(this.loop.bind(this));
   }
 
-  render(ts) {
+  update(dt) {
+    const baseSpeed = this.tempo / 120;
+    this.rotation += dt * baseSpeed * (0.5 + this.energy) * this.rotationMul;
+
+    // Driver values shared with scenes
+    this._driver = this._driver || {};
+    const beatSec = 60 / clamp(this.tempo, 40, 220);
+    const t = performance.now() / 1000;
+    const beatPhase = (t % beatSec) / beatSec;
+    const pulse = Math.exp(-10 * Math.pow(beatPhase - 0.02, 2)) * (0.5 + this.energy * 0.8) * this.pulseMul;
+
+    this._driver.time = t;
+    this._driver.pulse = pulse;
+    this._driver.rotation = this.rotation;
+    this._driver.energy = this.energy;
+
+    // Update active scene
+    this.scenes[this.mode]?.update(dt, this._driver);
+  }
+
+  render() {
     const ctx = this.ctx;
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
 
-    // Trails or clear
+    // Trails
     if (this.trailAlpha > 0) {
       ctx.fillStyle = `rgba(0,0,0,${this.trailAlpha})`;
       ctx.fillRect(0, 0, w, h);
@@ -171,387 +505,24 @@ export class Visualizer {
     }
 
     // Background glow
-    const g = ctx.createRadialGradient(w * 0.8, -h * 0.2, 50, w * 0.8, -h * 0.2, Math.max(w, h));
-    g.addColorStop(0, hexToRgba(this.bg, this.glowOpacity));
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
+    const gradient = ctx.createRadialGradient(w * 0.8, -h * 0.2, 50, w * 0.8, -h * 0.2, Math.max(w, h));
+    gradient.addColorStop(0, rgba(this.bg, this.glowOpacity));
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
 
-    // Scene render
-    if (this.current?.render) this.current.render(this.getCtx());
-
-    // Bloom center (subtle)
-    if (this.bloomStrength > 0) {
-      ctx.save();
-      ctx.translate(w / 2, h / 2);
-      const pulse = this.beatPulse(ts) * 30;
-      const bloom = ctx.createRadialGradient(0, 0, 4, 0, 0, 70 + pulse);
-      bloom.addColorStop(0, hexToRgba(this.palette[1] || "#ffffff", this.bloomStrength));
-      bloom.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = bloom;
-      ctx.beginPath();
-      ctx.arc(0, 0, 120 + pulse * 0.33, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Crossfade from previous
-    if (this.prevCanvas && this.prevAlpha > 0) {
-      const elapsed = performance.now() - this.switchAt;
-      this.prevAlpha = 1 - Math.min(1, elapsed / this.crossfadeDur);
-      ctx.globalAlpha = this.prevAlpha * 0.9;
-      ctx.drawImage(this.prevCanvas, 0, 0, this.canvas.width, this.canvas.height, 0, 0, w, h);
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  beatPulse(ts) {
-    const t = (ts || performance.now()) / 1000;
-    const beat = 60 / Math.max(40, Math.min(220, this.tempo));
-    const phase = (t % beat) / beat;
-    return Math.exp(-10 * Math.pow(phase - 0.02, 2)) * (0.5 + this.energy * 0.8) * this.pulseMul;
-  }
-
-  // Context for scenes
-  getCtx() {
-    return {
-      canvas: this.canvas,
-      ctx: this.ctx,
-      w: this.canvas.clientWidth,
-      h: this.canvas.clientHeight,
-      palette: this.palette,
-      tempo: this.tempo,
-      energy: this.energy,
-      rings: this.rings,
-      barsPerRing: this.barsPerRing,
-      rotationMul: this.rotationMul,
-      pulseMul: this.pulseMul,
-      trailAlpha: this.trailAlpha,
-      glowOpacity: this.glowOpacity,
-      bloomStrength: this.bloomStrength,
-      beatPulse: (ts) => this.beatPulse(ts),
-      random: seededRandom,
-      images: this.loadedImages,
-    };
-  }
-
-  register(name, factory) {
-    this.scenes.set(name, factory);
-  }
-
-  registerDefaultScenes() {
-    // 1) Radiant Rings (evolved)
-    this.register("Radiant Rings", () => {
-      let rotation = 0;
-      return {
-        onConfig: (viz) => { /* nothing extra */ },
-        update: (dt, v) => {
-          const baseSpeed = v.tempo / 120;
-          rotation += dt * baseSpeed * (0.5 + v.energy) * v.rotationMul;
-        },
-        render: (v) => {
-          const { ctx, w, h, rings, barsPerRing, palette } = v;
-          const t = performance.now() / 1000;
-          const beat = v.beatPulse();
-          ctx.save();
-          ctx.translate(w / 2, h / 2);
-          ctx.rotate(rotation * 0.2);
-          const R = Math.min(w, h) * 0.36;
-          for (let r = 0; r < rings; r++) {
-            const radius = 40 + (R / rings) * r + beat * 6 * (r + 1);
-            for (let i = 0; i < barsPerRing; i++) {
-              const a = (i / barsPerRing) * Math.PI * 2 + rotation * (0.1 + r * 0.05);
-              const x = Math.cos(a) * radius;
-              const y = Math.sin(a) * radius;
-              const col = palette[(i + r) % palette.length] || "#ffffff";
-              const len = 10 + Math.sin(a * 2 + t * (1.5 + r * 0.4)) * 7 + beat * 20 * (0.6 + v.energy);
-              const wBar = 2.4 + (r === 0 ? 0.6 : 0);
-              ctx.save();
-              ctx.translate(x, y); ctx.rotate(a);
-              ctx.fillStyle = hexToRgba(col, 0.9);
-              ctx.fillRect(-wBar / 2, -len / 2, wBar, len);
-              ctx.restore();
-            }
-          }
-          ctx.restore();
-        },
-      };
-    });
-
-    // 2) Particle Burst
-    this.register("Particle Burst", () => {
-      const parts = [];
-      const MAX = 900;
-      function spawnBurst(v, count) {
-        const { w, h, palette, energy } = v;
-        const cx = w / 2, cy = h / 2;
-        for (let i = 0; i < count; i++) {
-          const a = Math.random() * Math.PI * 2;
-          const sp = 70 + Math.random() * 240 * (0.5 + energy);
-          parts.push({
-            x: cx, y: cy,
-            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-            life: 0.8 + Math.random() * 1.6,
-            age: 0,
-            size: 1 + Math.random() * 2.4,
-            color: palette[Math.floor(Math.random() * palette.length)] || "#fff",
-          });
-        }
-        while (parts.length > MAX) parts.shift();
-      }
-      return {
-        update: (dt, v) => {
-          const p = v.beatPulse();
-          if (p > 0.35) spawnBurst(v, Math.floor(40 + p * 80));
-          for (const it of parts) {
-            it.age += dt;
-            it.x += it.vx * dt;
-            it.y += it.vy * dt;
-            it.vx *= 1 - dt * 0.6;
-            it.vy *= 1 - dt * 0.6;
-          }
-          // Remove dead
-          for (let i = parts.length - 1; i >= 0; i--) if (parts[i].age > parts[i].life) parts.splice(i, 1);
-        },
-        render: (v) => {
-          const { ctx } = v;
-          ctx.save();
-          ctx.globalCompositeOperation = "lighter";
-          for (const it of parts) {
-            const alpha = Math.max(0, 1 - it.age / it.life);
-            ctx.fillStyle = hexToRgba(it.color, alpha * 0.9);
-            ctx.beginPath();
-            ctx.arc(it.x, it.y, it.size + (1 - alpha) * 2.5, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          ctx.restore();
-        }
-      };
-    });
-
-    // 3) Flow Field Drift
-    this.register("Flow Field", () => {
-      const pts = [];
-      const COUNT = 1800;
-      let t0 = Math.random() * 1000;
-      function field(x, y, t) {
-        // Smooth pseudo noise with sines
-        const n = Math.sin(x * 0.002 + t) + Math.sin(y * 0.0035 - t * 0.8);
-        const a = n * Math.PI;
-        return a;
-      }
-      return {
-        init: (ctx, w, h) => {
-          pts.length = 0;
-          for (let i = 0; i < COUNT; i++) {
-            pts.push({
-              x: Math.random() * w,
-              y: Math.random() * h,
-              life: 40 + Math.random() * 120,
-            });
-          }
-        },
-        update: (dt, v) => {
-          t0 += dt * 0.5;
-          const sp = 35 + v.energy * 65;
-          for (const p of pts) {
-            const a = field(p.x, p.y, t0);
-            p.x += Math.cos(a) * sp * dt;
-            p.y += Math.sin(a) * sp * dt;
-            if (p.x < 0) p.x += v.w; if (p.x > v.w) p.x -= v.w;
-            if (p.y < 0) p.y += v.h; if (p.y > v.h) p.y -= v.h;
-            if (--p.life < 0) {
-              p.x = Math.random() * v.w; p.y = Math.random() * v.h; p.life = 40 + Math.random() * 120;
-            }
-          }
-        },
-        render: (v) => {
-          const { ctx, palette } = v;
-          ctx.save();
-          ctx.globalCompositeOperation = "lighter";
-          ctx.lineWidth = 1;
-          for (let i = 0; i < pts.length; i += 2) {
-            const p = pts[i], q = pts[i + 1] || pts[0];
-            const col = palette[i % palette.length] || "#fff";
-            ctx.strokeStyle = hexToRgba(col, 0.18);
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      };
-    });
-
-    // 4) Spectrum Waves (polylines)
-    this.register("Spectrum Waves", () => {
-      return {
-        render: (v) => {
-          const { ctx, w, h, palette, tempo, energy } = v;
-          const t = performance.now() / 1000;
-          const lines = 6;
-          const cx = w / 2, cy = h / 2;
-          const baseR = Math.min(w, h) * 0.3;
-          ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(t * 0.05 * (0.5 + energy));
-          for (let L = 0; L < lines; L++) {
-            const col = palette[L % palette.length] || "#fff";
-            ctx.strokeStyle = hexToRgba(col, 0.85);
-            ctx.lineWidth = 1.2 + L * 0.2;
-            ctx.beginPath();
-            const segs = 240;
-            for (let i = 0; i <= segs; i++) {
-              const a = (i / segs) * Math.PI * 2;
-              const m = (Math.sin(a * 3 + t * (1.6 + L * 0.2)) + Math.sin(a * 1.3 - t * 1.2)) * 0.5;
-              const beat = Math.min(1.6, (60 / tempo) * 1.4) * (0.4 + energy) * v.pulseMul;
-              const r = baseR * (0.7 + L * 0.05) + m * 18 + beat * 10;
-              const x = Math.cos(a) * r;
-              const y = Math.sin(a) * r;
-              if (i === 0) ctx.moveTo(x, y);
-              else ctx.lineTo(x, y);
-            }
-            ctx.closePath();
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      };
-    });
-
-    // 5) Floating Covers
-    this.register("Floating Covers", () => {
-      let sprites = [];
-      let bounds = { w: 0, h: 0 };
-      function buildSprites(images, v) {
-        sprites = [];
-        const N = Math.min(images.length || 1, 18);
-        for (let i = 0; i < N; i++) {
-          const img = images[i % images.length];
-          const size = Math.min(v.w, v.h) * (0.12 + Math.random() * 0.1);
-          sprites.push({
-            img,
-            x: Math.random() * v.w, y: Math.random() * v.h,
-            vx: (-0.5 + Math.random()) * (36 + v.energy * 40),
-            vy: (-0.5 + Math.random()) * (36 + v.energy * 40),
-            a: Math.random() * Math.PI * 2,
-            va: (-0.5 + Math.random()) * 0.5,
-            s: size,
-          });
-        }
-      }
-      return {
-        onImages: (imgs) => { /* handled in update via init */ },
-        init: (ctx, w, h, v) => { bounds = { w, h }; if (v.images?.length) buildSprites(v.images, v); },
-        onPalette: () => {},
-        update: (dt, v) => {
-          bounds = { w: v.w, h: v.h };
-          if (!sprites.length && v.images?.length) buildSprites(v.images, v);
-          const beatJolt = v.beatPulse();
-          for (const s of sprites) {
-            s.x += s.vx * dt; s.y += s.vy * dt; s.a += s.va * dt;
-            // Beat nudge
-            if (beatJolt > 0.35) {
-              s.vx += (-0.5 + Math.random()) * 40 * beatJolt;
-              s.vy += (-0.5 + Math.random()) * 40 * beatJolt;
-            }
-            // Bounds bounce
-            if (s.x < 0) { s.x = 0; s.vx *= -1; }
-            if (s.y < 0) { s.y = 0; s.vy *= -1; }
-            if (s.x + s.s > bounds.w) { s.x = bounds.w - s.s; s.vx *= -1; }
-            if (s.y + s.s > bounds.h) { s.y = bounds.h - s.s; s.vy *= -1; }
-            // Damp
-            s.vx *= (1 - dt * 0.05);
-            s.vy *= (1 - dt * 0.05);
-          }
-        },
-        render: (v) => {
-          const { ctx, palette } = v;
-          ctx.save();
-          ctx.globalCompositeOperation = "lighter";
-          for (const s of sprites) {
-            // Glow shadow
-            ctx.shadowColor = hexToRgba(palette[1] || "#fff", 0.35);
-            ctx.shadowBlur = 24;
-            ctx.translate(s.x + s.s / 2, s.y + s.s / 2);
-            ctx.rotate(s.a);
-            if (s.img) {
-              ctx.drawImage(s.img, -s.s / 2, -s.s / 2, s.s, s.s);
-            } else {
-              ctx.fillStyle = hexToRgba(palette[0], 0.9);
-              ctx.fillRect(-s.s / 2, -s.s / 2, s.s, s.s);
-            }
-            ctx.setTransform(1,0,0,1,0,0);
-          }
-          ctx.restore();
-        },
-        dispose: () => { sprites = []; }
-      };
-    });
-
-    // 6) Aurora Ribbons
-    this.register("Aurora Ribbons", () => {
-      const ribbons = [];
-      const N = 5;
-      for (let i = 0; i < N; i++) ribbons.push({ seed: Math.random() * 1000, offset: i * 0.4 });
-      return {
-        render: (v) => {
-          const { ctx, w, h, palette, energy } = v;
-          const t = performance.now() / 1000;
-          ctx.save();
-          ctx.globalCompositeOperation = "screen";
-          for (let i = 0; i < ribbons.length; i++) {
-            const rb = ribbons[i];
-            const col = palette[i % palette.length] || "#fff";
-            const path = [];
-            const rows = 80;
-            for (let x = 0; x <= rows; x++) {
-              const px = (x / rows) * w;
-              const y0 = h * (0.3 + 0.15 * i) + Math.sin((x * 0.12) + t * (0.8 + rb.offset)) * 30 * (0.6 + energy);
-              const y1 = y0 + 18 + Math.sin((x * 0.32) - t * (1.2 + rb.offset)) * 16;
-              path.push({ x: px, y0, y1 });
-            }
-            const grad = ctx.createLinearGradient(0, 0, 0, h);
-            grad.addColorStop(0, hexToRgba(col, 0.16));
-            grad.addColorStop(1, hexToRgba("#ffffff", 0));
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.moveTo(path[0].x, path[0].y0);
-            for (let k = 1; k < path.length; k++) ctx.lineTo(path[k].x, path[k].y0);
-            for (let k = path.length - 1; k >= 0; k--) ctx.lineTo(path[k].x, path[k].y1);
-            ctx.closePath();
-            ctx.fill();
-          }
-          ctx.restore();
-        }
-      };
-    });
-  }
-
-  loadImage(src) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
-    });
+    // Scene
+    this.scenes[this.mode]?.render(ctx, w, h, this._driver);
   }
 }
 
-function hexToRgba(hex, alpha = 1) {
-  if (!hex) return `rgba(255,255,255,${alpha})`;
+// Helpers
+function rgba(hex, a = 1) {
+  if (!hex) return `rgba(255,255,255,${a})`;
   let c = hex.replace("#", "");
   if (c.length === 3) c = c.split("").map(ch => ch + ch).join("");
   const r = parseInt(c.slice(0, 2), 16);
   const g = parseInt(c.slice(2, 4), 16);
   const b = parseInt(c.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-// A simple seeded-like randomness via sin hashing; used for subtle consistency.
-function seededRandom(i = Math.random()) {
-  const x = Math.sin((i + 1) * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
+  return `rgba(${r},${g},${b},${a})`;
 }

@@ -14,7 +14,6 @@
       <header>
         <h1>Spotify Visualizer</h1>
         <div id="actions">
-          <button id="snapshot-btn" class="ghost" title="Save snapshot">📸</button>
           <button id="settings-btn" class="ghost" aria-label="Open settings" title="Settings">⚙️</button>
           <div id="auth">
             <button id="login-btn" class="primary">Log in with Spotify</button>
@@ -61,7 +60,7 @@
 
       <footer>
         <p class="muted small">
-          Spotify Premium is required for in-browser playback using the Web Playback SDK. Visuals adapt to album colors and track tempo/energy. Use the settings to switch modes, themes, and presets.
+          Spotify Premium is required for in-browser playback using the Web Playback SDK. Visuals adapt to album colors and track tempo/energy.
         </p>
       </footer>
     </main>
@@ -74,38 +73,34 @@
         <button id="drawer-close" class="ghost" aria-label="Close settings">✖</button>
       </header>
 
-      <!-- Quick switching -->
       <section class="drawer-section">
-        <h3>Visualizer Mode</h3>
+        <h3>Mode & Theme</h3>
         <div class="field">
-          <label for="viz-mode">Mode</label>
+          <label for="viz-mode">Visualizer mode</label>
           <select id="viz-mode">
-            <!-- Populated by app.js from available modes -->
+            <option value="rings">Rings</option>
+            <option value="particles">Particle Field</option>
+            <option value="orbit">Orbit Lines</option>
+            <option value="tunnel">Tunnel</option>
+            <option value="covers">Floating Covers</option>
           </select>
         </div>
-        <div class="row wrap" id="viz-presets">
-          <!-- Visual presets (chips) populated by app.js -->
-        </div>
-      </section>
-
-      <section class="drawer-section">
-        <h3>Themes</h3>
-        <div class="row wrap" id="theme-presets">
-          <!-- Theme chips populated by app.js -->
-        </div>
-      </section>
-
-      <section class="drawer-section">
-        <h3>Color</h3>
         <div class="field">
-          <label for="color-mode">Color mode</label>
-          <select id="color-mode">
-            <option value="album">Album (dynamic)</option>
-            <option value="theme">Theme Palette</option>
+          <label for="theme">Theme</label>
+          <select id="theme">
+            <option value="album">Album Adaptive</option>
+            <option value="neon">Neon</option>
+            <option value="midnight">Midnight</option>
+            <option value="sunset">Sunset</option>
+            <option value="ocean">Ocean</option>
+            <option value="vaporwave">Vaporwave</option>
+            <option value="cyber">Cyberpunk</option>
+            <option value="candy">Candy</option>
+            <option value="noir">Noir</option>
             <option value="mono">Mono (custom)</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="custom-color-field" hidden>
           <label for="custom-color">Custom color</label>
           <input type="color" id="custom-color" value="#1db954" />
         </div>
@@ -118,14 +113,10 @@
       </section>
 
       <section class="drawer-section">
-        <h3>Motion</h3>
+        <h3>Global</h3>
         <div class="field">
-          <label for="rings">Rings <span data-out="rings-val"></span></label>
-          <input type="range" id="rings" min="1" max="6" step="1" />
-        </div>
-        <div class="field">
-          <label for="bars">Bars per ring <span data-out="bars-val"></span></label>
-          <input type="range" id="bars" min="16" max="128" step="4" />
+          <label for="complexity">Complexity <span data-out="complexity-val"></span></label>
+          <input type="range" id="complexity" min="0.3" max="2" step="0.1" />
         </div>
         <div class="field">
           <label for="rotation">Rotation speed <span data-out="rotation-val"></span></label>
@@ -135,17 +126,13 @@
           <label for="pulse">Pulse intensity <span data-out="pulse-val"></span></label>
           <input type="range" id="pulse" min="0" max="2" step="0.05" />
         </div>
-      </section>
-
-      <section class="drawer-section">
-        <h3>Look</h3>
-        <div class="field">
-          <label for="glow">Background glow <span data-out="glow-val"></span></label>
-          <input type="range" id="glow" min="0" max="0.6" step="0.02" />
-        </div>
         <div class="field">
           <label for="trail">Trail fade <span data-out="trail-val"></span></label>
           <input type="range" id="trail" min="0" max="0.3" step="0.01" />
+        </div>
+        <div class="field">
+          <label for="glow">Background glow <span data-out="glow-val"></span></label>
+          <input type="range" id="glow" min="0" max="0.6" step="0.02" />
         </div>
         <div class="field">
           <label for="bloom">Bloom strength <span data-out="bloom-val"></span></label>
@@ -153,17 +140,90 @@
         </div>
       </section>
 
-      <section class="drawer-section">
-        <h3>Automation</h3>
+      <section class="drawer-section mode-section" data-mode="rings">
+        <h3>Rings</h3>
         <div class="field">
-          <label class="checkbox">
-            <input type="checkbox" id="auto-cycle" />
-            Auto-cycle modes
-          </label>
+          <label for="rings">Rings <span data-out="rings-val"></span></label>
+          <input type="range" id="rings" min="1" max="6" step="1" />
         </div>
         <div class="field">
-          <label for="cycle-min">Cycle every (min) <span data-out="cycle-val"></span></label>
-          <input type="range" id="cycle-min" min="0.5" max="10" step="0.5" />
+          <label for="bars">Bars per ring <span data-out="bars-val"></span></label>
+          <input type="range" id="bars" min="16" max="128" step="4" />
+        </div>
+      </section>
+
+      <section class="drawer-section mode-section" data-mode="particles">
+        <h3>Particles</h3>
+        <div class="field">
+          <label for="particles-count">Count <span data-out="particles-val"></span></label>
+          <input type="range" id="particles-count" min="80" max="1000" step="20" />
+        </div>
+        <div class="field">
+          <label for="particle-size">Size <span data-out="particle-size-val"></span></label>
+          <input type="range" id="particle-size" min="0.5" max="4" step="0.1" />
+        </div>
+      </section>
+
+      <section class="drawer-section mode-section" data-mode="orbit">
+        <h3>Orbit Lines</h3>
+        <div class="field">
+          <label for="nodes">Nodes <span data-out="nodes-val"></span></label>
+          <input type="range" id="nodes" min="8" max="140" step="2" />
+        </div>
+        <div class="field">
+          <label for="link-distance">Link distance <span data-out="link-val"></span></label>
+          <input type="range" id="link-distance" min="60" max="300" step="10" />
+        </div>
+      </section>
+
+      <section class="drawer-section mode-section" data-mode="tunnel">
+        <h3>Tunnel</h3>
+        <div class="field">
+          <label for="tunnel-density">Density <span data-out="tunnel-val"></span></label>
+          <input type="range" id="tunnel-density" min="10" max="120" step="5" />
+        </div>
+        <div class="field">
+          <label for="tunnel-twist">Twist <span data-out="twist-val"></span></label>
+          <input type="range" id="tunnel-twist" min="0" max="2" step="0.05" />
+        </div>
+      </section>
+
+      <section class="drawer-section mode-section" data-mode="covers">
+        <h3>Floating Covers</h3>
+        <div class="field">
+          <label for="covers-count">Count <span data-out="covers-val"></span></label>
+          <input type="range" id="covers-count" min="4" max="60" step="2" />
+        </div>
+        <div class="field">
+          <label for="cover-size">Max size <span data-out="cover-size-val"></span></label>
+          <input type="range" id="cover-size" min="40" max="240" step="10" />
+        </div>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Visualizer Presets</h3>
+        <div class="row">
+          <button class="chip" data-preset="classic-rings">Classic Rings</button>
+          <button class="chip" data-preset="aurora-particles">Aurora Particles</button>
+          <button class="chip" data-preset="cyber-lines">Cyber Neon Lines</button>
+          <button class="chip" data-preset="sunset-tunnel">Sunset Tunnel</button>
+          <button class="chip" data-preset="vapor-float">Vaporwave Float</button>
+          <button class="chip" data-preset="minimal-noir">Minimal Noir</button>
+        </div>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Theme Presets</h3>
+        <div class="row">
+          <button class="chip" data-theme="album">Album</button>
+          <button class="chip" data-theme="neon">Neon</button>
+          <button class="chip" data-theme="midnight">Midnight</button>
+          <button class="chip" data-theme="sunset">Sunset</button>
+          <button class="chip" data-theme="ocean">Ocean</button>
+          <button class="chip" data-theme="vaporwave">Vaporwave</button>
+          <button class="chip" data-theme="cyber">Cyber</button>
+          <button class="chip" data-theme="candy">Candy</button>
+          <button class="chip" data-theme="noir">Noir</button>
         </div>
       </section>
     </aside>
