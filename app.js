@@ -5,6 +5,11 @@ import { Visualizer } from "./visualizer.js";
 const $ = (sel) => document.querySelector(sel);
 const loginBtn = $("#login-btn");
 const logoutBtn = $("#logout-btn");
+const settingsBtn = $("#settings-btn");
+const overlay = $("#overlay");
+const drawer = $("#drawer");
+const drawerClose = $("#drawer-close");
+
 const userSection = $("#user");
 const userName = $("#user-name");
 const userProduct = $("#user-product");
@@ -23,8 +28,252 @@ const duration = $("#duration");
 const volumeSlider = $("#volume-slider");
 const statusEl = $("#status");
 
-// Visualizer
-const viz = new Visualizer(document.getElementById("visualizer"));
+// Settings controls
+const colorModeSel = $("#color-mode");
+const customColorInp = $("#custom-color");
+const lockPaletteChk = $("#lock-palette");
+
+const ringsRange = $("#rings");
+const barsRange = $("#bars");
+const rotationRange = $("#rotation");
+const pulseRange = $("#pulse");
+const glowRange = $("#glow");
+const trailRange = $("#trail");
+const bloomRange = $("#bloom");
+const out = (id) => drawer.querySelector(`[data-out="${id}"]`);
+
+// -------- Device detection --------
+const ua = navigator.userAgent || "";
+const isIPhone = /\biPhone\b/.test(ua) || (/\bCPU iPhone OS\b/.test(ua) && /\bMobile\b/.test(ua));
+const isIOS = isIPhone || /\biPad\b/.test(ua);
+if (isIPhone) document.documentElement.classList.add("iphone");
+
+// -------- Visualizer --------
+const defaultSettings = {
+  colorMode: "album", // album | brand | mono
+  customColor: "#1db954",
+  lockPalette: false,
+  rings: isIPhone ? 2 : 3,
+  barsPerRing: isIPhone ? 36 : 48,
+  rotationMul: 1.0,
+  pulseMul: 1.0,
+  glowOpacity: 0.25,
+  trailAlpha: 0.06,
+  bloomStrength: 0.22,
+  dprCap: isIPhone ? 1.5 : Math.max(1, window.devicePixelRatio || 1),
+};
+const LS_SETTINGS = "viz_settings_v2";
+
+function loadSettings() {
+  const raw = localStorage.getItem(LS_SETTINGS);
+  if (!raw) return { ...defaultSettings };
+  try {
+    return { ...defaultSettings, ...JSON.parse(raw) };
+  } catch {
+    return { ...defaultSettings };
+  }
+}
+function saveSettings(s) {
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(s));
+}
+
+let settings = loadSettings();
+
+// Visualizer instance
+const viz = new Visualizer(document.getElementById("visualizer"), {
+  rings: settings.rings,
+  barsPerRing: settings.barsPerRing,
+  rotationMul: settings.rotationMul,
+  pulseMul: settings.pulseMul,
+  glowOpacity: settings.glowOpacity,
+  trailAlpha: settings.trailAlpha,
+  bloomStrength: settings.bloomStrength,
+  dprCap: settings.dprCap,
+});
+
+// Initialize settings UI
+function initSettingsUI() {
+  colorModeSel.value = settings.colorMode;
+  customColorInp.value = settings.customColor;
+  lockPaletteChk.checked = settings.lockPalette;
+
+  ringsRange.value = String(settings.rings);
+  barsRange.value = String(settings.barsPerRing);
+  rotationRange.value = String(settings.rotationMul);
+  pulseRange.value = String(settings.pulseMul);
+  glowRange.value = String(settings.glowOpacity);
+  trailRange.value = String(settings.trailAlpha);
+  bloomRange.value = String(settings.bloomStrength);
+
+  out("rings-val").textContent = settings.rings;
+  out("bars-val").textContent = settings.barsPerRing;
+  out("rotation-val").textContent = settings.rotationMul.toFixed(1);
+  out("pulse-val").textContent = settings.pulseMul.toFixed(2);
+  out("glow-val").textContent = settings.glowOpacity.toFixed(2);
+  out("trail-val").textContent = settings.trailAlpha.toFixed(2);
+  out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
+
+  // Listeners
+  colorModeSel.addEventListener("change", () => {
+    settings.colorMode = colorModeSel.value;
+    applyColorMode();
+    saveSettings(settings);
+  });
+  customColorInp.addEventListener("input", () => {
+    settings.customColor = customColorInp.value;
+    if (settings.colorMode === "mono") applyColorMode();
+    saveSettings(settings);
+  });
+  lockPaletteChk.addEventListener("change", () => {
+    settings.lockPalette = lockPaletteChk.checked;
+    saveSettings(settings);
+  });
+
+  ringsRange.addEventListener("input", () => {
+    settings.rings = Number(ringsRange.value);
+    out("rings-val").textContent = settings.rings;
+    viz.configure({ rings: settings.rings });
+    saveSettings(settings);
+  });
+  barsRange.addEventListener("input", () => {
+    settings.barsPerRing = Number(barsRange.value);
+    out("bars-val").textContent = settings.barsPerRing;
+    viz.configure({ barsPerRing: settings.barsPerRing });
+    saveSettings(settings);
+  });
+  rotationRange.addEventListener("input", () => {
+    settings.rotationMul = Number(rotationRange.value);
+    out("rotation-val").textContent = settings.rotationMul.toFixed(1);
+    viz.configure({ rotationMul: settings.rotationMul });
+    saveSettings(settings);
+  });
+  pulseRange.addEventListener("input", () => {
+    settings.pulseMul = Number(pulseRange.value);
+    out("pulse-val").textContent = settings.pulseMul.toFixed(2);
+    viz.configure({ pulseMul: settings.pulseMul });
+    saveSettings(settings);
+  });
+  glowRange.addEventListener("input", () => {
+    settings.glowOpacity = Number(glowRange.value);
+    out("glow-val").textContent = settings.glowOpacity.toFixed(2);
+    viz.configure({ glowOpacity: settings.glowOpacity });
+    saveSettings(settings);
+  });
+  trailRange.addEventListener("input", () => {
+    settings.trailAlpha = Number(trailRange.value);
+    out("trail-val").textContent = settings.trailAlpha.toFixed(2);
+    viz.configure({ trailAlpha: settings.trailAlpha });
+    saveSettings(settings);
+  });
+  bloomRange.addEventListener("input", () => {
+    settings.bloomStrength = Number(bloomRange.value);
+    out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
+    viz.configure({ bloomStrength: settings.bloomStrength });
+    saveSettings(settings);
+  });
+
+  // Presets
+  drawer.querySelectorAll(".chip[data-preset]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = btn.getAttribute("data-preset");
+      applyPreset(p);
+    });
+  });
+
+  // Drawer controls
+  settingsBtn.addEventListener("click", openDrawer);
+  drawerClose.addEventListener("click", closeDrawer);
+  overlay.addEventListener("click", closeDrawer);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+  });
+
+  // Apply initial color mode
+  applyColorMode();
+}
+
+function openDrawer() {
+  overlay.classList.add("open");
+  drawer.classList.add("open");
+  overlay.setAttribute("aria-hidden", "false");
+  drawer.setAttribute("aria-hidden", "false");
+}
+function closeDrawer() {
+  overlay.classList.remove("open");
+  drawer.classList.remove("open");
+  overlay.setAttribute("aria-hidden", "true");
+  drawer.setAttribute("aria-hidden", "true");
+}
+
+function applyPreset(name) {
+  const presets = {
+    chill: {
+      rings: isIPhone ? 2 : 3,
+      barsPerRing: isIPhone ? 28 : 40,
+      rotationMul: 0.7,
+      pulseMul: 0.8,
+      glowOpacity: 0.32,
+      trailAlpha: 0.08,
+      bloomStrength: 0.28,
+    },
+    energetic: {
+      rings: isIPhone ? 3 : 4,
+      barsPerRing: isIPhone ? 44 : 64,
+      rotationMul: 1.6,
+      pulseMul: 1.6,
+      glowOpacity: 0.22,
+      trailAlpha: 0.04,
+      bloomStrength: 0.26,
+    },
+    minimal: {
+      rings: 1,
+      barsPerRing: 32,
+      rotationMul: 0.9,
+      pulseMul: 0.6,
+      glowOpacity: 0.18,
+      trailAlpha: 0.02,
+      bloomStrength: 0.15,
+    },
+  };
+  const p = presets[name];
+  if (!p) return;
+  Object.assign(settings, p);
+  viz.configure(p);
+
+  // Reflect in UI
+  ringsRange.value = String(settings.rings);
+  barsRange.value = String(settings.barsPerRing);
+  rotationRange.value = String(settings.rotationMul);
+  pulseRange.value = String(settings.pulseMul);
+  glowRange.value = String(settings.glowOpacity);
+  trailRange.value = String(settings.trailAlpha);
+  bloomRange.value = String(settings.bloomStrength);
+
+  out("rings-val").textContent = settings.rings;
+  out("bars-val").textContent = settings.barsPerRing;
+  out("rotation-val").textContent = settings.rotationMul.toFixed(1);
+  out("pulse-val").textContent = settings.pulseMul.toFixed(2);
+  out("glow-val").textContent = settings.glowOpacity.toFixed(2);
+  out("trail-val").textContent = settings.trailAlpha.toFixed(2);
+  out("bloom-val").textContent = settings.bloomStrength.toFixed(2);
+
+  saveSettings(settings);
+}
+
+function applyColorMode() {
+  if (settings.colorMode === "album") {
+    // keep dynamic; palette updated per-track unless locked
+    document.documentElement.style.setProperty("--primary", viz.palette[1] || viz.palette[0] || "#1db954");
+  } else if (settings.colorMode === "brand") {
+    const brand = ["#1db954", "#1db954", "#ffffff"];
+    viz.setPalette(brand);
+    document.documentElement.style.setProperty("--primary", brand[0]);
+  } else if (settings.colorMode === "mono") {
+    const c = settings.customColor || "#1db954";
+    viz.setPalette([c, c, "#ffffff"]);
+    document.documentElement.style.setProperty("--primary", c);
+  }
+}
 
 // -------- Config / Redirect URI (Spotify policy compliant) --------
 function computeRedirectUri() {
@@ -34,14 +283,12 @@ function computeRedirectUri() {
 
   const isLoopback = host === "127.0.0.1" || host === "::1";
 
-  if (isHttps) return u.toString();
-  if (isLoopback) return u.toString();
+  if (isHttps || isLoopback) return u.toString();
 
   if (host === "localhost" || host === "0.0.0.0") {
     u.hostname = "127.0.0.1";
     return u.toString();
   }
-
   return u.toString();
 }
 
@@ -134,7 +381,6 @@ async function ensureAccessToken() {
     return tok.access_token;
   }
 
-  // Handle authorization code in URL
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -164,7 +410,6 @@ async function ensureAccessToken() {
     const data = await res.json();
     saveTokens(data);
 
-    // Clean URL (drop code/state). Keep current directory.
     window.history.replaceState({}, document.title, new URL("./", window.location.href).toString());
     return data.access_token;
   }
@@ -254,7 +499,8 @@ async function init() {
 
     if (!token) {
       status("Please log in with Spotify.");
-      // We return here but auth buttons are already bound above.
+      viz.start();
+      initSettingsUI();
       return;
     }
 
@@ -274,7 +520,6 @@ async function init() {
       }
     }
 
-    // Wait for SDK
     await spotifySDKReady;
 
     player = new Spotify.Player({
@@ -286,7 +531,6 @@ async function init() {
       volume: 0.5,
     });
 
-    // Listeners
     player.addListener("ready", async ({ device_id }) => {
       deviceId = device_id;
       status(`Player ready on device ${device_id}. Transferring playback...`);
@@ -313,21 +557,23 @@ async function init() {
 
     player.addListener("player_state_changed", onPlayerState);
 
-    // Connect
     const connected = await player.connect();
     if (!connected) {
       status("Failed to connect Spotify player.");
+      viz.start();
+      initSettingsUI();
       return;
     }
 
-    // Bind player controls now that player exists
     bindPlayerControls();
 
-    // Start visualizer
     viz.start();
+    initSettingsUI();
   } catch (e) {
     console.error(e);
     status(e.message || "Error initializing app");
+    viz.start();
+    initSettingsUI();
   }
 }
 
@@ -399,7 +645,9 @@ async function onPlayerState(state) {
     const imgUrl = img?.url || "";
     if (imgUrl) {
       albumArt.src = imgUrl;
-      updatePaletteFromImage(imgUrl).catch(console.warn);
+      if (!settings.lockPalette && settings.colorMode === "album") {
+        updatePaletteFromImage(imgUrl).catch(console.warn);
+      }
     }
 
     try {
@@ -415,14 +663,15 @@ async function onPlayerState(state) {
   }
 }
 
-// Extract a compact palette from an image by sampling
+// Palette extraction
 async function updatePaletteFromImage(url) {
   const img = await loadImage(url);
   const colors = extractPalette(img, 5);
-  viz.setPalette(colors);
-  document.documentElement.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
+  if (settings.colorMode === "album" && !settings.lockPalette) {
+    viz.setPalette(colors);
+    document.documentElement.style.setProperty("--primary", colors[1] || colors[0] || "#1db954");
+  }
 }
-
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -432,11 +681,10 @@ function loadImage(src) {
     img.src = src;
   });
 }
-
 function extractPalette(image, maxColors = 5) {
   const canvas = document.createElement("canvas");
-  const w = (canvas.width = Math.min(240, image.naturalWidth));
-  const h = (canvas.height = Math.min(240, image.naturalHeight));
+  const w = (canvas.width = Math.min(240, image.naturalWidth || image.width));
+  const h = (canvas.height = Math.min(240, image.naturalHeight || image.height));
   const ctx = canvas.getContext("2d");
   ctx.drawImage(image, 0, 0, w, h);
   const { data } = ctx.getImageData(0, 0, w, h);
@@ -473,7 +721,6 @@ function extractPalette(image, maxColors = 5) {
   const uniq = [...new Set(ordered)];
   return uniq.slice(0, maxColors);
 }
-
 function hexLuma(hex) {
   let c = hex.replace("#", "");
   if (c.length === 3) c = c.split("").map(ch => ch + ch).join("");

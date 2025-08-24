@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Spotify Visualizer</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <link rel="stylesheet" href="./styles.css" />
     <meta name="color-scheme" content="dark light" />
   </head>
@@ -13,9 +13,12 @@
     <main id="app">
       <header>
         <h1>Spotify Visualizer</h1>
-        <div id="auth">
-          <button id="login-btn" class="primary">Log in with Spotify</button>
-          <button id="logout-btn" class="ghost" hidden>Log out</button>
+        <div id="actions">
+          <button id="settings-btn" class="ghost" aria-label="Open settings" title="Settings">⚙️</button>
+          <div id="auth">
+            <button id="login-btn" class="primary">Log in with Spotify</button>
+            <button id="logout-btn" class="ghost" hidden>Log out</button>
+          </div>
         </div>
       </header>
 
@@ -62,11 +65,84 @@
       </footer>
     </main>
 
-    <!-- Config: copy config.example.js to config.js and set your CLIENT_ID -->
+    <!-- Overlay and slide-out drawer -->
+    <div id="overlay" aria-hidden="true"></div>
+    <aside id="drawer" aria-hidden="true" aria-label="Settings panel">
+      <header class="drawer-header">
+        <h2>Settings</h2>
+        <button id="drawer-close" class="ghost" aria-label="Close settings">✖</button>
+      </header>
+
+      <section class="drawer-section">
+        <h3>Color</h3>
+        <div class="field">
+          <label for="color-mode">Mode</label>
+          <select id="color-mode">
+            <option value="album">Album (dynamic)</option>
+            <option value="brand">Spotify Brand</option>
+            <option value="mono">Mono (custom)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="custom-color">Custom color</label>
+          <input type="color" id="custom-color" value="#1db954" />
+        </div>
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" id="lock-palette" />
+            Lock album colors (don’t change per track)
+          </label>
+        </div>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Motion</h3>
+        <div class="field">
+          <label for="rings">Rings <span data-out="rings-val"></span></label>
+          <input type="range" id="rings" min="1" max="5" step="1" />
+        </div>
+        <div class="field">
+          <label for="bars">Bars per ring <span data-out="bars-val"></span></label>
+          <input type="range" id="bars" min="16" max="96" step="4" />
+        </div>
+        <div class="field">
+          <label for="rotation">Rotation speed <span data-out="rotation-val"></span></label>
+          <input type="range" id="rotation" min="0.4" max="3" step="0.1" />
+        </div>
+        <div class="field">
+          <label for="pulse">Pulse intensity <span data-out="pulse-val"></span></label>
+          <input type="range" id="pulse" min="0" max="2" step="0.05" />
+        </div>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Look</h3>
+        <div class="field">
+          <label for="glow">Background glow <span data-out="glow-val"></span></label>
+          <input type="range" id="glow" min="0" max="0.6" step="0.02" />
+        </div>
+        <div class="field">
+          <label for="trail">Trail fade <span data-out="trail-val"></span></label>
+          <input type="range" id="trail" min="0" max="0.3" step="0.01" />
+        </div>
+        <div class="field">
+          <label for="bloom">Bloom strength <span data-out="bloom-val"></span></label>
+          <input type="range" id="bloom" min="0" max="1" step="0.05" />
+        </div>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Presets</h3>
+        <div class="row">
+          <button class="chip" data-preset="chill">Chill</button>
+          <button class="chip" data-preset="energetic">Energetic</button>
+          <button class="chip" data-preset="minimal">Minimal</button>
+        </div>
+      </section>
+    </aside>
+
     <script src="./config.js"></script>
-    <!-- Spotify Web Playback SDK -->
     <script async src="https://sdk.scdn.co/spotify-player.js"></script>
-    <!-- App scripts -->
     <script type="module" src="./app.js"></script>
   </body>
 </html>
